@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +51,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlin.math.abs
 import com.example.freelocalplayer.lyrics.LrcParser
+import com.example.freelocalplayer.lyrics.LrcTimingAdjuster
 import com.example.freelocalplayer.lyrics.LyricLineSync
 import com.example.freelocalplayer.lyrics.TimedLine
 import com.example.freelocalplayer.music.ChordCue
@@ -57,6 +60,7 @@ import com.example.freelocalplayer.music.InlineLyricToken
 import com.example.freelocalplayer.music.LyricChordTimeline
 
 /** Lyrics and real chord estimates share one scrollable view. No generated/fake lyrics. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun LyricsChordsScreen(
     lyrics: String,
@@ -76,21 +80,34 @@ internal fun LyricsChordsScreen(
     val timed = remember(lyrics) { LrcParser.parse(lyrics) }
     var isTimingTxt by remember(lyrics) { mutableStateOf(false) }
     var autoFollow by remember(lyrics) { mutableStateOf(true) }
+    var editTimingMode by remember(lyrics) { mutableStateOf(false) }
+    var selectedTimingIndex by remember(lyrics) { mutableStateOf<Int?>(null) }
+    val editableCues = remember(lyrics) { LrcTimingAdjuster.cues(lyrics) }
     var lineMarks by remember(lyrics) { mutableStateOf<List<Long>>(emptyList()) }
     val plainLines = remember(lyrics) { LyricLineSync.lines(lyrics) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
         // One action row only when there is text. The empty state has its own import button.
         if (lyrics.isNotBlank()) {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            // FlowRow wraps on narrow screens instead of hiding edit actions.
+            FlowRow(modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 if (timed.isNotEmpty()) {
                     FilterChip(
                         selected = autoFollow,
                         onClick = { autoFollow = !autoFollow },
                         label = { Text(if (autoFollow) "Авто: вкл" else "Авто: выкл") }
                     )
+                    FilterChip(
+                        selected = editTimingMode,
+                        onClick = {
+                            editTimingMode = !editTimingMode
+                            if (editTimingMode) autoFollow = false
+                            selectedTimingIndex = null
+                        },
+                        label = { Text("Метки") }
+                    )
                 }
-                Spacer(Modifier.weight(1f))
                 TextButton(onClick = onImportLyrics) { Text("Заменить") }
                 TextButton(onClick = onEditLyrics) { Text("Изменить") }
             }
@@ -125,13 +142,28 @@ internal fun LyricsChordsScreen(
                     val active = activeIndex == index
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        onClick = { onSeek(item.lyric.timeMs) },
+                        onClick = {
+                            if (editTimingMode && editableCues.size == timed.size) {
+                                selectedTimingIndex = index
+                            } else {
+                                onSeek(item.lyric.timeMs)
+                            }
+                        },
                         colors = CardDefaults.cardColors(
                             containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer
                             else MaterialTheme.colorScheme.surfaceVariant
                         )
                     ) {
                         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                            if (editTimingMode) {
+                                Text(
+                                    "${LyricLineSync.formatTime(item.lyric.timeMs)} · Нажми для настройки времени",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (active) MaterialTheme.colorScheme.onSecondaryContainer
+                                            else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.height(4.dp))
+                            }
                             if (item.lyric.words.isNotEmpty()) {
                                 // Enhanced LRC contains actual word timestamps. The
                                 // chord labels follow those timestamps, not guessed word positions.
@@ -177,6 +209,92 @@ internal fun LyricsChordsScreen(
                 }
             }
         }
+    }
+    // Every edit previews a new LRC string without overwriting the original.
+    // Saving is only enabled when all time/word-order checks pass.
+    val selectedIndex = selectedTimingIndex
+    if (selectedIndex != null && selectedIndex in editableCues.indices) {
+        val cue = editableCues[selectedIndex]
+        var candidateMs by remember(lyrics, selectedIndex) { mutableLongStateOf(cue.timeMs) }
+        val changedLyrics = remember(lyrics, selectedIndex, candidateMs, durationMs) {
+            LrcTimingAdjuster.retime(lyrics, selectedIndex, candidateMs, durationMs)
+        }
+        val validOffsets = remember(lyrics, selectedIndex, candidateMs, durationMs) {
+            listOf(-500L, -100L, 100L, 500L).associateWith { delta ->
+                LrcTimingAdjuster.retime(lyrics, selectedIndex, candidateMs + delta, durationMs) != null
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { selectedTimingIndex = null },
+            title = { Text("Время строки LRC") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(cue.text, style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface)
+                    Text("Было: ${LyricLineSync.formatTime(cue.timeMs)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Новое: ${LyricLineSync.formatTime(candidateMs)}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        listOf(-500L, -100L, 100L, 500L).forEach { delta ->
+                            val proposalMs = candidateMs + delta
+                            OutlinedButton(
+                                enabled = validOffsets[delta] == true,
+                                onClick = { candidateMs = proposalMs }
+                            ) {
+                                Text(when (delta) {
+                                    -500L -> "−0,5 с"
+                                    -100L -> "−0,1 с"
+                                    100L -> "+0,1 с"
+                                    else -> "+0,5 с"
+                                })
+                            }
+                        }
+                    }
+                    val atPlayback = positionMs.coerceAtLeast(0L)
+                    TextButton(
+                        onClick = { candidateMs = atPlayback },
+                        enabled = LrcTimingAdjuster.retime(
+                            lyrics, selectedIndex, atPlayback, durationMs
+                        ) != null
+                    ) { Text("По текущей позиции песни") }
+                    if (cue.hasWordTiming && cue.hasMultipleLineTags) {
+                        Text("В этой строке несколько временных меток и общие метки слов. " +
+                            "Чтобы не испортить караоке, открой ручное редактирование LRC.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error)
+                    } else if (cue.hasWordTiming) {
+                        Text("Метки слов сдвигаются на тот же интервал — пословная синхронизация сохраняется.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (changedLyrics == null && !(cue.hasWordTiming && cue.hasMultipleLineTags)) {
+                        Text("Время должно оставаться между соседними строками, " +
+                            "не выходить за пределы песни и не делать метки слов отрицательными.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (changedLyrics != null && changedLyrics != lyrics) {
+                            onSaveTimedLyrics(changedLyrics)
+                            selectedTimingIndex = null
+                            editTimingMode = false
+                        }
+                    },
+                    enabled = changedLyrics != null && changedLyrics != lyrics
+                ) { Text("Сохранить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedTimingIndex = null }) { Text("Отмена") }
+            }
+        )
     }
     if (isTimingTxt && timed.isEmpty() && plainLines.isNotEmpty()) {
         Dialog(
