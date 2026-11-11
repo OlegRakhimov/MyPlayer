@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
@@ -382,66 +383,89 @@ internal fun MusicModeScreen(
                         }
                     }
                 }
-                Surface(color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(14.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp)) {
+                // Main transport is visible without opening a second panel. Previous/next,
+                // queue and Play/Pause are always one tap away; expanded actions are optional.
+                FusionGlassCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Row(
                                 modifier = Modifier.weight(1f)
                                     .clickable { controlsExpanded = !controlsExpanded }
-                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                    .padding(start = 6.dp, end = 2.dp, top = 10.dp, bottom = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
                             ) {
-                                Text("${musicTime(musicPosition)} / ${musicTime(playback.duration)}",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurface)
-                                Icon(if (controlsExpanded) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                                Text(
+                                    "${musicTime(musicPosition)} / ${musicTime(playback.duration)}",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Icon(
+                                    if (controlsExpanded) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
                                     contentDescription = if (controlsExpanded) "Свернуть управление" else "Раскрыть управление",
-                                    modifier = Modifier.size(20.dp),
-                                    tint = MaterialTheme.colorScheme.onSurface)
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                            PlaybackModeSelector(playback, onShuffleChange, onRepeatChange)
-                            IconButton(onClick = {
-                                if (controller?.isPlaying == true) controller.pause() else controller?.play()
-                            }, enabled = controller != null) {
-                                Icon(if (controller?.isPlaying == true) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = "Воспроизведение или пауза",
-                                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                            IconButton(
+                                onClick = { controller?.seekToPreviousMediaItem() },
+                                enabled = controller != null && playback.count > 0,
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Icon(Icons.Default.SkipPrevious, "Предыдущая песня",
+                                    modifier = Modifier.size(26.dp), tint = MaterialTheme.colorScheme.onSurface)
+                            }
+                            FusionPlayPauseButton(
+                                playing = playback.playing,
+                                enabled = controller != null && playback.count > 0,
+                                onClick = {
+                                    if (controller?.isPlaying == true) controller.pause() else controller?.play()
+                                },
+                                size = 50.dp
+                            )
+                            IconButton(
+                                onClick = { controller?.seekToNextMediaItem() },
+                                enabled = controller != null && playback.count > 0,
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Icon(Icons.Default.SkipNext, "Следующая песня",
+                                    modifier = Modifier.size(26.dp), tint = MaterialTheme.colorScheme.onSurface)
+                            }
+                            IconButton(onClick = onOpenQueue, modifier = Modifier.size(44.dp)) {
+                                Icon(Icons.Default.QueueMusic, "Очередь воспроизведения",
+                                    modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurface)
                             }
                         }
                         if (controlsExpanded) {
-                            Slider(value = sliderValue,
+                            Slider(
+                                value = sliderValue,
                                 onValueChange = { sliderValue = it; positionDragging = true },
                                 onValueChangeFinished = {
                                     if (playback.duration > 0L)
                                         controller?.seekTo((playback.duration * sliderValue).toLong())
                                     positionDragging = false
                                 },
-                                enabled = controller != null && playback.duration > 0L)
-                            Row(modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
-                                verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { controller?.seekToPreviousMediaItem() },
-                                    enabled = controller != null) {
-                                    Icon(Icons.Default.SkipPrevious, "Предыдущая песня", tint = MaterialTheme.colorScheme.onSurface)
-                                }
+                                enabled = controller != null && playback.duration > 0L
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 TextButton(onClick = {
-                                    controller?.seekTo((musicPosition - 10_000L).coerceAtLeast(0L))
+                                    controller?.seekTo(musicSeekTarget(musicPosition, -10_000L, playback.duration))
                                 }) { Text("−10 с") }
+                                PlaybackModeSelector(playback, onShuffleChange, onRepeatChange)
                                 TextButton(onClick = {
-                                    controller?.seekTo(if (playback.duration > 0L)
-                                        (musicPosition + 10_000L).coerceAtMost(playback.duration)
-                                        else musicPosition + 10_000L)
+                                    controller?.seekTo(musicSeekTarget(musicPosition, 10_000L, playback.duration))
                                 }) { Text("+10 с") }
-                                IconButton(onClick = { controller?.seekToNextMediaItem() },
-                                    enabled = controller != null) {
-                                    Icon(Icons.Default.SkipNext, "Следующая песня", tint = MaterialTheme.colorScheme.onSurface)
-                                }
                             }
-                            Row(modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End) {
-                                TextButton(onClick = onOpenQueue) { Text("Очередь") }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
                                 TextButton(onClick = { showTools = true }) { Text("Инструменты") }
                                 TextButton(onClick = { controlsExpanded = false }) { Text("Свернуть") }
                             }

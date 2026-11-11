@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -74,14 +75,23 @@ internal fun LyricsChordsScreen(
 ) {
     val timed = remember(lyrics) { LrcParser.parse(lyrics) }
     var isTimingTxt by remember(lyrics) { mutableStateOf(false) }
+    var autoFollow by remember(lyrics) { mutableStateOf(true) }
     var lineMarks by remember(lyrics) { mutableStateOf<List<Long>>(emptyList()) }
     val plainLines = remember(lyrics) { LyricLineSync.lines(lyrics) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
         // One action row only when there is text. The empty state has its own import button.
         if (lyrics.isNotBlank()) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onImportLyrics) { Text("Заменить TXT/LRC") }
+                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (timed.isNotEmpty()) {
+                    FilterChip(
+                        selected = autoFollow,
+                        onClick = { autoFollow = !autoFollow },
+                        label = { Text(if (autoFollow) "Авто: вкл" else "Авто: выкл") }
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onImportLyrics) { Text("Заменить") }
                 TextButton(onClick = onEditLyrics) { Text("Изменить") }
             }
         }
@@ -101,8 +111,11 @@ internal fun LyricsChordsScreen(
             }
             val activeIndex = LrcParser.currentLine(timed, positionMs)
             val listState = rememberLazyListState()
-            LaunchedEffect(activeIndex) {
-                if (activeIndex >= 0) listState.animateScrollToItem((activeIndex - 2).coerceAtLeast(0))
+            // During manual reading users can disable follow; enabling it again jumps
+            // to the current timestamp without altering the LRC or playback state.
+            LaunchedEffect(activeIndex, autoFollow, timed.size) {
+                val target = lyricScrollTarget(activeIndex, timed.size, autoFollow)
+                if (target != null) listState.animateScrollToItem(target)
             }
             LazyColumn(
                 modifier = Modifier.fillMaxSize(), state = listState,
@@ -127,7 +140,7 @@ internal fun LyricsChordsScreen(
                                 InlineChordLine(LyricChordTimeline.parseInline(item.lyric.text), active)
                             } else {
                                 ChordsForLine(item.chords, positionMs,
-                                    timed.getOrNull(index + 1)?.timeMs ?: durationMs)
+                                    timed.getOrNull(index + 1)?.timeMs ?: durationMs, active)
                                 Text(
                                     item.lyric.text,
                                     style = if (active) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
@@ -392,7 +405,8 @@ private fun FullScreenLyricTiming(
 }
 
 @Composable
-private fun ChordsForLine(chords: List<ChordOnLyricLine>, positionMs: Long, lineEndMs: Long) {
+private fun ChordsForLine(chords: List<ChordOnLyricLine>, positionMs: Long, lineEndMs: Long,
+                          lineActive: Boolean) {
     if (chords.isEmpty()) return
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         chords.take(8).forEachIndexed { index, item ->
@@ -400,8 +414,10 @@ private fun ChordsForLine(chords: List<ChordOnLyricLine>, positionMs: Long, line
             val active = positionMs >= item.audioTimeMs && positionMs < until
             Text(
                 if (item.name == "—") "?" else item.name,
-                fontWeight = FontWeight.ExtraBold,
-                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+                color = if (lineActive) MaterialTheme.colorScheme.onSecondaryContainer
+                        else if (active) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.secondary,
                 style = MaterialTheme.typography.titleMedium
             )
         }
@@ -435,13 +451,17 @@ private fun EnhancedLine(
                 Text(
                     chord ?: " ", fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.secondary,
+                    color = if (active) MaterialTheme.colorScheme.onSecondaryContainer
+                            else MaterialTheme.colorScheme.secondary,
                     lineHeight = 17.sp
                 )
                 Text(
                     syllable, fontSize = 18.sp, lineHeight = 25.sp,
-                    color = if (active && time <= positionMs) MaterialTheme.colorScheme.onSecondaryContainer
-                    else MaterialTheme.colorScheme.onSurface,
+                    color = when {
+                        active && time <= positionMs -> MaterialTheme.colorScheme.onSecondaryContainer
+                        active -> MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.78f)
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
                     fontWeight = if (active && time <= positionMs) FontWeight.Bold else FontWeight.Normal
                 )
             }
@@ -463,12 +483,14 @@ private fun InlineChordLine(tokens: List<InlineLyricToken>, active: Boolean) {
                     token.chord ?: " ", fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     lineHeight = 17.sp,
-                    color = MaterialTheme.colorScheme.secondary
+                    color = if (active) MaterialTheme.colorScheme.onSecondaryContainer
+                            else MaterialTheme.colorScheme.secondary
                 )
                 Text(
                     token.text, fontSize = 18.sp, lineHeight = 25.sp,
                     fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    color = if (active) MaterialTheme.colorScheme.onSecondaryContainer
+                            else MaterialTheme.colorScheme.onSurface
                 )
             }
         }
