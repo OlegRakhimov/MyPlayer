@@ -3,6 +3,7 @@ package com.example.freelocalplayer.ui
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,8 +36,6 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,7 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
@@ -102,7 +101,13 @@ internal fun NowPlayingScreen(
     ) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(
-                modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxSize()
+                    .background(Brush.verticalGradient(listOf(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.background
+                    )))
+                    .safeDrawingPadding().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -164,7 +169,7 @@ private fun FullscreenArtwork(entry: MediaEntry, modifier: Modifier = Modifier) 
     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = entry.uri) {
         value = withContext(Dispatchers.IO) { ArtworkReader.read(context, entry.uri) }
     }
-    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    FusionGlassCard(modifier = modifier) {
         Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
             if (bitmap != null) {
                 Image(
@@ -289,16 +294,16 @@ private fun FullscreenTransport(
         }
         IconButton(onClick = { controller?.seekTo((info.position - 10_000L).coerceAtLeast(0L)) },
             enabled = enabled) { Icon(Icons.Default.FastRewind, "−10 секунд") }
-        IconButton(onClick = {
-            if (info.playing) controller?.pause() else {
-                if (info.ended) controller?.seekTo(0L)
-                controller?.play()
+        FusionPlayPauseButton(
+            playing = info.playing,
+            enabled = enabled,
+            onClick = {
+                if (info.playing) controller?.pause() else {
+                    if (info.ended) controller?.seekTo(0L)
+                    controller?.play()
+                }
             }
-        }, enabled = enabled, modifier = Modifier.size(54.dp)) {
-            Icon(if (info.playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                if (info.playing) "Пауза" else "Играть", modifier = Modifier.size(38.dp),
-                tint = MaterialTheme.colorScheme.primary)
-        }
+        )
         IconButton(onClick = { controller?.seekTo(info.position + 10_000L) },
             enabled = enabled) { Icon(Icons.Default.FastForward, "+10 секунд") }
         IconButton(onClick = { controller?.seekToNextMediaItem() }, enabled = enabled) {

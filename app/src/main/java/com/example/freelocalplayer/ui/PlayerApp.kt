@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.NoteAlt
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
@@ -77,7 +78,6 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -89,8 +89,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import android.content.Context
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -111,16 +111,6 @@ import com.example.freelocalplayer.music.ChordCorrection
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
-private val AppColors = darkColorScheme(
-    primary = Color(0xFF90D8FF),
-    onPrimary = Color(0xFF00334C),
-    secondary = Color(0xFFB8C9FF),
-    background = Color(0xFF10131B),
-    surface = Color(0xFF191F2A),
-    surfaceVariant = Color(0xFF293241),
-    onSurface = Color(0xFFE9EDF7),
-    onSurfaceVariant = Color(0xFFC3CAD8)
-)
 
 internal data class PlaybackInfo(
     val mediaId: String? = null,
@@ -175,6 +165,15 @@ fun PlayerApp(
     onShuffleChange: (Boolean) -> Unit,
     onRepeatChange: (Int) -> Unit
 ) {
+    // Appearance settings are local-only; media and playlist storage are untouched.
+    val fusionContext = LocalContext.current
+    val fusionPrefs = remember(fusionContext) {
+        fusionContext.applicationContext.getSharedPreferences("freelocalplayer_appearance", Context.MODE_PRIVATE)
+    }
+    var paletteKey by remember { mutableStateOf(fusionPrefs.getString("palette", "STUDIO_DARK")) }
+    var reducedMotion by remember { mutableStateOf(fusionPrefs.getBoolean("reduced_motion", false)) }
+    var fusionSettingsOpen by remember { mutableStateOf(false) }
+    val fusionPalette = FusionPalette.fromStored(paletteKey)
     var playback by remember { mutableStateOf(PlaybackInfo()) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var selection by rememberSaveable { mutableStateOf("all") }
@@ -239,7 +238,7 @@ fun PlayerApp(
         }
     }
 
-    MaterialTheme(colorScheme = AppColors) {
+    ModernFusionTheme(palette = fusionPalette, reducedMotion = reducedMotion) {
         Column(
             modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
                 .safeDrawingPadding().padding(horizontal = 12.dp, vertical = 6.dp),
@@ -249,11 +248,14 @@ fun PlayerApp(
                 Icon(Icons.Default.LibraryMusic, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Мой плеер", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
-                        color = Color(0xFFF5F8FF))
+                    Text("FreeLocalPlayer", style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
                 }
                 Text("${library.media.size}", style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.secondary)
+                IconButton(onClick = { fusionSettingsOpen = true }) {
+                    Icon(Icons.Default.Palette, "Выбрать оформление")
+                }
             }
 
             val tabs = listOf("Музыка", "Видео", "Списки", "Тексты", "Недавние", "Избранное")
@@ -398,6 +400,21 @@ fun PlayerApp(
 
         }
 
+        if (fusionSettingsOpen) {
+            FusionSettingsDialog(
+                selected = fusionPalette,
+                reducedMotion = reducedMotion,
+                onPaletteSelected = { selected ->
+                    paletteKey = selected.name
+                    fusionPrefs.edit().putString("palette", selected.name).apply()
+                },
+                onReducedMotionChanged = { enabled ->
+                    reducedMotion = enabled
+                    fusionPrefs.edit().putBoolean("reduced_motion", enabled).apply()
+                },
+                onDismiss = { fusionSettingsOpen = false }
+            )
+        }
         if (nowPlayingOpen && current != null && current.isVideo) {
             FullscreenVideoScreen(
                 entry = current,
@@ -542,8 +559,8 @@ private fun PlayerPanel(
     val progress = if (info.duration > 0L)
         (info.position.toFloat() / info.duration.toFloat()).coerceIn(0f, 1f) else 0f
 
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 3.dp)) {
+    FusionGlassCard {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(if (current?.isVideo == true) Icons.Default.VideoFile else Icons.Default.MusicNote,
                     null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
@@ -553,16 +570,17 @@ private fun PlayerPanel(
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.bodyMedium)
-                IconButton(onClick = {
-                    if (info.playing) controller?.pause() else {
-                        if (info.ended) controller?.seekTo(0L)
-                        controller?.play()
+                FusionPlayPauseButton(
+                    playing = info.playing,
+                    enabled = enabled,
+                    size = 42.dp,
+                    onClick = {
+                        if (info.playing) controller?.pause() else {
+                            if (info.ended) controller?.seekTo(0L)
+                            controller?.play()
+                        }
                     }
-                }, enabled = enabled, modifier = Modifier.size(42.dp)) {
-                    Icon(if (info.playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        if (info.playing) "Пауза" else "Воспроизвести", Modifier.size(28.dp),
-                        tint = MaterialTheme.colorScheme.primary)
-                }
+                )
                 IconButton(onClick = { controller?.seekToNextMediaItem() },
                     enabled = enabled && (controller?.hasNextMediaItem() == true || info.count > 1),
                     modifier = Modifier.size(38.dp)) {

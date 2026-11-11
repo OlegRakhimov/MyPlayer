@@ -245,7 +245,7 @@ internal fun MusicModeScreen(
                     Spacer(Modifier.width(8.dp))
                     Text(entry.title, modifier = Modifier.weight(1f), maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = Color(0xFFF5F8FF),
+                        color = MaterialTheme.colorScheme.onBackground,
                         style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     IconButton(onClick = { showTools = true }, modifier = Modifier.size(40.dp)) {
                         Icon(Icons.Default.Settings, contentDescription = "Музыкальные инструменты")
@@ -774,7 +774,7 @@ private fun PianoRoll(part: ScorePart, position: Long, modifier: Modifier, onSee
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f))
         }
         val playX = ((position - start).toFloat() / span * size.width).coerceIn(0f, size.width)
-        drawLine(Color(0xFFFFC65E), Offset(playX, 0f), Offset(playX, size.height), 3f)
+        drawLine(primary, Offset(playX, 0f), Offset(playX, size.height), 3f)
     }
 }
 
@@ -827,7 +827,7 @@ private fun MusicStaff(part: ScorePart, position: Long, bassClef: Boolean, modif
             }
         }
         val playX = (position - start).toFloat() / span * (xEnd - xStart) + xStart
-        drawLine(Color(0xFFFFC65E), Offset(playX, 4f), Offset(playX, size.height - 4f), 2.5f)
+        drawLine(primary, Offset(playX, 4f), Offset(playX, size.height - 4f), 2.5f)
     }
 }
 

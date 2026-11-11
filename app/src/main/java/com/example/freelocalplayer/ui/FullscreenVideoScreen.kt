@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -130,7 +131,10 @@ internal fun FullscreenVideoScreen(
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
-                                .background(Color.Black.copy(alpha = 0.62f))
+                                .background(Brush.verticalGradient(listOf(
+                                    Color.Black.copy(alpha = 0.88f),
+                                    Color.Black.copy(alpha = 0.45f)
+                                )))
                                 .padding(start = 14.dp, top = 18.dp, end = 6.dp, bottom = 8.dp)
                         ) {
                             Text(
@@ -141,7 +145,9 @@ internal fun FullscreenVideoScreen(
                                 style = MaterialTheme.typography.titleMedium,
                                 modifier = Modifier.weight(1f)
                             )
-                            PlaybackModeSelector(info, onShuffleChange, onRepeatChange)
+                            ModernFusionTheme(FusionPalette.STUDIO_DARK) {
+                                PlaybackModeSelector(info, onShuffleChange, onRepeatChange)
+                            }
                             IconButton(onClick = onOpenQueue) {
                                 Icon(Icons.Default.QueueMusic, "Очередь воспроизведения", tint = Color.White)
                             }
@@ -151,7 +157,10 @@ internal fun FullscreenVideoScreen(
                         }
                         Column(
                             modifier = Modifier.fillMaxWidth()
-                                .background(Color.Black.copy(alpha = 0.64f))
+                                .background(Brush.verticalGradient(listOf(
+                                    Color.Black.copy(alpha = 0.42f),
+                                    Color.Black.copy(alpha = 0.9f)
+                                )))
                                 .padding(horizontal = 16.dp, vertical = 10.dp)
                         ) {
                             Row(
