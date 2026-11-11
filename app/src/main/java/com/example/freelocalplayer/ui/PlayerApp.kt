@@ -36,6 +36,9 @@ import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.FolderOpen
@@ -179,6 +182,10 @@ fun PlayerApp(
     var selection by rememberSaveable { mutableStateOf("all") }
     var chosenTrackId by rememberSaveable { mutableStateOf("") }
     var search by rememberSaveable { mutableStateOf("") }
+    var sortKey by rememberSaveable { mutableStateOf(MediaSortOption.ADDED.name) }
+    var lyricFilterKey by rememberSaveable { mutableStateOf(LyricsViewFilter.ALL.name) }
+    var sortMenuOpen by remember { mutableStateOf(false) }
+    var lyricFilterMenuOpen by remember { mutableStateOf(false) }
     var addTrackToPlaylistId by remember { mutableStateOf<String?>(null) }
     var trackToDelete by remember { mutableStateOf<String?>(null) }
     var nowPlayingOpen by rememberSaveable { mutableStateOf(false) }
@@ -284,51 +291,170 @@ fun PlayerApp(
                         4 -> "recent"
                         else -> "favorites"
                     }
-                    val allById = library.media.associateBy { it.id }
-                    val media = when (source) {
-                        "recent" -> recentIds.mapNotNull(allById::get)
-                        "favorites" -> library.media.filter { it.id in favoriteIds }
-                        else -> library.tracksFor(source)
-                    }.filter { it.title.contains(search.trim(), ignoreCase = true) }
-                    Column(modifier = Modifier.weight(1f)) {
+                    // Filter and sort the presentation, not the Media3 playback queue.
+                    // In particular, "Недавние" preserves its established playback-history order.
+                    val sourceMedia = remember(library.media, recentIds, favoriteIds, source) {
+                        val allById = library.media.associateBy { it.id }
+                        when (source) {
+                            "recent" -> recentIds.mapNotNull(allById::get)
+                            "favorites" -> library.media.filter { it.id in favoriteIds }
+                            else -> library.tracksFor(source)
+                        }
+                    }
+                    val sortOrder = MediaSortOption.fromStored(sortKey)
+                    val lyricFilter = LyricsViewFilter.fromStored(lyricFilterKey)
+                    val effectiveSort = if (source == "recent") MediaSortOption.ADDED else sortOrder
+                    val effectiveLyricsFilter = if (tab == 0) lyricFilter else LyricsViewFilter.ALL
+                    val media = remember(sourceMedia, search, effectiveSort, effectiveLyricsFilter) {
+                        selectLibraryMedia(sourceMedia, search, effectiveSort, effectiveLyricsFilter)
+                    }
+                    val listState = rememberLazyListState()
+                    LaunchedEffect(tab, search, sortKey, lyricFilterKey) {
+                        listState.scrollToItem(0)
+                    }
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         if (tab == 0 || tab == 1) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = onImportFiles, contentPadding = PaddingValues(horizontal = 12.dp)) {
-                                Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Добавить файлы")
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Button(
+                                    onClick = onImportFiles,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("Файлы", maxLines = 1)
+                                }
+                                OutlinedButton(
+                                    onClick = onImportFolder,
+                                    enabled = !scanning,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                ) {
+                                    Icon(Icons.Default.FolderOpen, contentDescription = null,
+                                        modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("Папка", maxLines = 1)
+                                }
+                                IconButton(onClick = onScanPhone, enabled = !scanning) {
+                                    Icon(Icons.Default.Refresh,
+                                        contentDescription = "Найти музыку и видео на телефоне",
+                                        tint = MaterialTheme.colorScheme.onBackground)
+                                }
                             }
-                            OutlinedButton(onClick = onImportFolder, enabled = !scanning,
-                                contentPadding = PaddingValues(horizontal = 10.dp)) {
-                                Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text(if (scanning) "Сканирую…" else "Папка")
+                            if (scanning) {
+                                Text("Сканирование памяти телефона…",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                        }
-                        TextButton(onClick = onScanPhone, enabled = !scanning) {
-                            Icon(Icons.Default.Refresh, "Сканировать память телефона", Modifier.size(18.dp))
-                            Spacer(Modifier.width(7.dp))
-                            Text(if (scanning) "Сканирование…" else "Найти музыку и видео на телефоне")
-                        }
                         }
                         OutlinedTextField(
                             value = search,
                             onValueChange = { search = it },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
-                            label = { Text("Поиск по названию") }
+                            leadingIcon = {
+                                Icon(Icons.Default.Search, contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            },
+                            trailingIcon = {
+                                if (search.isNotEmpty()) {
+                                    IconButton(onClick = { search = "" }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Очистить поиск",
+                                            tint = MaterialTheme.colorScheme.onSurface)
+                                    }
+                                }
+                            },
+                            placeholder = { Text("Название файла") }
                         )
-                        Spacer(Modifier.height(5.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                "${media.size} из ${sourceMedia.size}",
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (source != "recent") {
+                                Box {
+                                    TextButton(onClick = { sortMenuOpen = true }) {
+                                        Icon(Icons.Default.Sort, contentDescription = null,
+                                            modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(sortOrder.label, maxLines = 1)
+                                    }
+                                    DropdownMenu(
+                                        expanded = sortMenuOpen,
+                                        onDismissRequest = { sortMenuOpen = false }
+                                    ) {
+                                        MediaSortOption.entries.forEach { option ->
+                                            DropdownMenuItem(
+                                                text = { Text(option.label) },
+                                                leadingIcon = {
+                                                    if (sortOrder == option) {
+                                                        Icon(Icons.Default.Check, contentDescription = null)
+                                                    }
+                                                },
+                                                onClick = {
+                                                    sortKey = option.name
+                                                    sortMenuOpen = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            if (tab == 0) {
+                                Box {
+                                    TextButton(onClick = { lyricFilterMenuOpen = true }) {
+                                        Icon(Icons.Default.FilterList, contentDescription = null,
+                                            modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(if (lyricFilter == LyricsViewFilter.ALL) "Текст"
+                                            else lyricFilter.shortLabel, maxLines = 1)
+                                    }
+                                    DropdownMenu(
+                                        expanded = lyricFilterMenuOpen,
+                                        onDismissRequest = { lyricFilterMenuOpen = false }
+                                    ) {
+                                        LyricsViewFilter.entries.forEach { option ->
+                                            DropdownMenuItem(
+                                                text = { Text(option.label) },
+                                                leadingIcon = {
+                                                    if (lyricFilter == option) {
+                                                        Icon(Icons.Default.Check, contentDescription = null)
+                                                    }
+                                                },
+                                                onClick = {
+                                                    lyricFilterKey = option.name
+                                                    lyricFilterMenuOpen = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         if (media.isEmpty()) {
-                            EmptyHint(if (search.isNotBlank()) "По запросу ничего не найдено."
+                            EmptyHint(if (search.isNotBlank() || (tab == 0 && lyricFilter != LyricsViewFilter.ALL))
+                                "Нет файлов с такими условиями. Очисти поиск или фильтр."
                                 else when (tab) {
-                                    0 -> "Добавь музыку через кнопку выше."
-                                    1 -> "Добавь видео через кнопку выше."
+                                    0 -> "Добавь музыку кнопкой «Файлы» или «Папка»."
+                                    1 -> "Добавь видео кнопкой «Файлы» или «Папка»."
                                     4 -> "История прослушивания пока пуста."
                                     else -> "Добавь песни в избранное кнопкой звёздочки."
                                 })
                         } else {
-                            LazyColumn(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            LazyColumn(
+                                state = listState,
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
                                 items(media, key = { it.id }) { entry ->
                                     TrackRow(
                                         entry = entry,
@@ -578,6 +704,14 @@ private fun PlayerPanel(
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.bodyMedium)
+                IconButton(
+                    onClick = { controller?.seekToPreviousMediaItem() },
+                    enabled = enabled && (controller?.hasPreviousMediaItem() == true || info.count > 1),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(Icons.Default.SkipPrevious, "Предыдущая песня", Modifier.size(23.dp),
+                        tint = MaterialTheme.colorScheme.onSurface)
+                }
                 FusionPlayPauseButton(
                     playing = info.playing,
                     enabled = enabled,
@@ -673,9 +807,13 @@ private fun TrackRow(
     favorite: Boolean,
     onFavorite: () -> Unit
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor =
-        if (active) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)) {
-        Row(modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp), verticalAlignment = Alignment.CenterVertically) {
+    var actionsExpanded by remember(entry.id) { mutableStateOf(false) }
+    Card(
+        colors = CardDefaults.cardColors(containerColor =
+            if (active) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface),
+        border = if (active) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+    ) {
+        Row(modifier = Modifier.fillMaxWidth().heightIn(min = 62.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(
                 modifier = Modifier.weight(1f).clickable(onClick = onClick).padding(start = 10.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -700,17 +838,42 @@ private fun TrackRow(
                            else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onText, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.NoteAlt, "Показать/добавить текст", Modifier.size(20.dp),
+            IconButton(onClick = onAdd, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Default.PlaylistAdd, "В плейлист", Modifier.size(22.dp),
                     tint = MaterialTheme.colorScheme.onSurface)
             }
-            IconButton(onClick = onAdd, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.PlaylistAdd, "В плейлист", Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onSurface)
-            }
-            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.DeleteOutline, "Убрать из библиотеки", Modifier.size(19.dp),
-                    tint = MaterialTheme.colorScheme.onSurface)
+            Box {
+                IconButton(onClick = { actionsExpanded = true }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.MoreVert, "Действия с файлом", Modifier.size(22.dp),
+                        tint = MaterialTheme.colorScheme.onSurface)
+                }
+                DropdownMenu(
+                    expanded = actionsExpanded,
+                    onDismissRequest = { actionsExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Текст песни") },
+                        leadingIcon = {
+                            Icon(Icons.Default.NoteAlt, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface)
+                        },
+                        onClick = {
+                            actionsExpanded = false
+                            onText()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Убрать из библиотеки") },
+                        leadingIcon = {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface)
+                        },
+                        onClick = {
+                            actionsExpanded = false
+                            onDelete()
+                        }
+                    )
+                }
             }
         }
     }
