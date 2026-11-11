@@ -38,3 +38,26 @@ Build / Android device acceptance: **not confirmed in the authoring environment*
 - [ ] GitHub commit and remote HEAD match after patch installation.
 
 See issue: https://github.com/OlegRakhimov/MyPlayer/issues/1
+
+## Stage B — Studio Dark contrast corrections (11 Nov 2026)
+
+**Reported:** On a real phone, palette icon in the library header, some mini-player
+icons (next / expand / queue / overflow), and secondary labels are hard to read
+in Studio Dark. Screenshot supplied by the user.
+
+**Changes:**
+- Header palette icon explicitly uses `onBackground`; library media count is legible.
+- Active and inactive library tabs explicitly use palette colors and high-contrast text.
+- Mini-player navigation, queue, overflow, expand actions explicitly use `onSurface`.
+- Shared glass card exposes `contentColor=onSurface` for other inherited UI content.
+- Library row action icons have explicit tint; the existing actions are untouched.
+- NowPlaying music controls and MusicMode top/action icons have explicit contrast.
+- Studio Dark roles `secondary`, `onSurfaceVariant`, and `outline` are lightened.
+- Inactive lyric lines no longer undergo redundant alpha reduction.
+- JVM contrast tests check three themes and background/surface combinations.
+
+**Out of scope:** media playback algorithms, persisted data, queue/shuffle semantics,
+other themes' color values, video overlay white-on-black cinematic controls.
+
+**Status:** prepared as safe-source patch; on-device contrast and Gradle tests
+require execution in Windows Android project.

@@ -248,13 +248,16 @@ internal fun MusicModeScreen(
                         color = MaterialTheme.colorScheme.onBackground,
                         style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     IconButton(onClick = { showTools = true }, modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Default.Settings, contentDescription = "Музыкальные инструменты")
+                        Icon(Icons.Default.Settings, contentDescription = "Музыкальные инструменты",
+                            tint = MaterialTheme.colorScheme.onBackground)
                     }
                     IconButton(onClick = onOpenCover, modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Default.Image, contentDescription = "Обложка")
+                        Icon(Icons.Default.Image, contentDescription = "Обложка",
+                            tint = MaterialTheme.colorScheme.onBackground)
                     }
                     IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                        Icon(Icons.Default.Close, contentDescription = "Закрыть",
+                            tint = MaterialTheme.colorScheme.onBackground)
                     }
                 }
                 Row(
@@ -395,7 +398,8 @@ internal fun MusicModeScreen(
                                     color = MaterialTheme.colorScheme.onSurface)
                                 Icon(if (controlsExpanded) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
                                     contentDescription = if (controlsExpanded) "Свернуть управление" else "Раскрыть управление",
-                                    modifier = Modifier.size(20.dp))
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.onSurface)
                             }
                             PlaybackModeSelector(playback, onShuffleChange, onRepeatChange)
                             IconButton(onClick = {
@@ -420,7 +424,7 @@ internal fun MusicModeScreen(
                                 verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(onClick = { controller?.seekToPreviousMediaItem() },
                                     enabled = controller != null) {
-                                    Icon(Icons.Default.SkipPrevious, "Предыдущая песня")
+                                    Icon(Icons.Default.SkipPrevious, "Предыдущая песня", tint = MaterialTheme.colorScheme.onSurface)
                                 }
                                 TextButton(onClick = {
                                     controller?.seekTo((musicPosition - 10_000L).coerceAtLeast(0L))
@@ -432,7 +436,7 @@ internal fun MusicModeScreen(
                                 }) { Text("+10 с") }
                                 IconButton(onClick = { controller?.seekToNextMediaItem() },
                                     enabled = controller != null) {
-                                    Icon(Icons.Default.SkipNext, "Следующая песня")
+                                    Icon(Icons.Default.SkipNext, "Следующая песня", tint = MaterialTheme.colorScheme.onSurface)
                                 }
                             }
                             Row(modifier = Modifier.fillMaxWidth(),
@@ -462,7 +466,8 @@ internal fun MusicModeScreen(
                         Text("Музыкальные инструменты", modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
                         IconButton(onClick = { showTools = false }) {
-                            Icon(Icons.Default.Close, contentDescription = "Вернуться к тексту")
+                            Icon(Icons.Default.Close, contentDescription = "Вернуться к тексту",
+                            tint = MaterialTheme.colorScheme.onBackground)
                         }
                     }
                     HorizontalDivider()

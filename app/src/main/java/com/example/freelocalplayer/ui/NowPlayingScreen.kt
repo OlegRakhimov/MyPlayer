@@ -123,9 +123,10 @@ internal fun NowPlayingScreen(
                         Text("Ноты")
                     }
                     IconButton(onClick = onOpenQueue) {
-                        Icon(Icons.Default.QueueMusic, "Очередь воспроизведения")
+                        Icon(Icons.Default.QueueMusic, "Очередь воспроизведения",
+                            tint = MaterialTheme.colorScheme.onBackground)
                     }
-                    IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Закрыть экран") }
+                    IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Закрыть экран", tint = MaterialTheme.colorScheme.onBackground) }
                 }
                 if (!entry.isVideo) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -231,7 +232,7 @@ private fun FullscreenLyrics(
                     color = when {
                         active && line.words.isEmpty() -> MaterialTheme.colorScheme.primary
                         active -> MaterialTheme.colorScheme.onSurface
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().clickable { onSeek(line.timeMs) }.padding(horizontal = 8.dp)
@@ -290,10 +291,10 @@ private fun FullscreenTransport(
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceEvenly) {
         IconButton(onClick = { controller?.seekToPreviousMediaItem() }, enabled = enabled) {
-            Icon(Icons.Default.SkipPrevious, "Предыдущая песня")
+            Icon(Icons.Default.SkipPrevious, "Предыдущая песня", tint = MaterialTheme.colorScheme.onSurface)
         }
         IconButton(onClick = { controller?.seekTo((info.position - 10_000L).coerceAtLeast(0L)) },
-            enabled = enabled) { Icon(Icons.Default.FastRewind, "−10 секунд") }
+            enabled = enabled) { Icon(Icons.Default.FastRewind, "−10 секунд", tint = MaterialTheme.colorScheme.onSurface) }
         FusionPlayPauseButton(
             playing = info.playing,
             enabled = enabled,
@@ -305,9 +306,9 @@ private fun FullscreenTransport(
             }
         )
         IconButton(onClick = { controller?.seekTo(info.position + 10_000L) },
-            enabled = enabled) { Icon(Icons.Default.FastForward, "+10 секунд") }
+            enabled = enabled) { Icon(Icons.Default.FastForward, "+10 секунд", tint = MaterialTheme.colorScheme.onSurface) }
         IconButton(onClick = { controller?.seekToNextMediaItem() }, enabled = enabled) {
-            Icon(Icons.Default.SkipNext, "Следующая песня")
+            Icon(Icons.Default.SkipNext, "Следующая песня", tint = MaterialTheme.colorScheme.onSurface)
         }
     }
     var speedOpen by remember { mutableStateOf(false) }

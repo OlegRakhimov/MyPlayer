@@ -252,18 +252,26 @@ fun PlayerApp(
                         fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
                 }
                 Text("${library.media.size}", style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.secondary)
+                    color = MaterialTheme.colorScheme.onBackground)
                 IconButton(onClick = { fusionSettingsOpen = true }) {
-                    Icon(Icons.Default.Palette, "Выбрать оформление")
+                    Icon(Icons.Default.Palette, "Выбрать оформление",
+                        tint = MaterialTheme.colorScheme.onBackground)
                 }
             }
 
             val tabs = listOf("Музыка", "Видео", "Списки", "Тексты", "Недавние", "Избранное")
-            ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
+            ScrollableTabRow(
+                selectedTabIndex = tab,
+                edgePadding = 0.dp,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            ) {
                 tabs.forEachIndexed { index, label ->
                     Tab(
                         selected = tab == index,
                         onClick = { tab = index },
+                        selectedContentColor = MaterialTheme.colorScheme.primary,
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurface,
                         text = { Text(label, maxLines = 1, style = MaterialTheme.typography.labelMedium) }
                     )
                 }
@@ -584,11 +592,13 @@ private fun PlayerPanel(
                 IconButton(onClick = { controller?.seekToNextMediaItem() },
                     enabled = enabled && (controller?.hasNextMediaItem() == true || info.count > 1),
                     modifier = Modifier.size(38.dp)) {
-                    Icon(Icons.Default.SkipNext, "Следующая песня", Modifier.size(25.dp))
+                    Icon(Icons.Default.SkipNext, "Следующая песня", Modifier.size(25.dp),
+                        tint = MaterialTheme.colorScheme.onSurface)
                 }
                 IconButton(onClick = onExpand, enabled = enabled, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Default.OpenInFull, if (current?.isVideo == true)
-                        "Полноэкранное видео" else "Полноэкранный плеер", Modifier.size(20.dp))
+                        "Полноэкранное видео" else "Полноэкранный плеер", Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurface)
                 }
             }
             // A discreet progress line is enough for the library mini-player.
@@ -603,14 +613,16 @@ private fun PlayerPanel(
                     enabled = enabled,
                     modifier = Modifier.size(34.dp)
                 ) {
-                    Icon(Icons.Default.QueueMusic, "Очередь воспроизведения", Modifier.size(20.dp))
+                    Icon(Icons.Default.QueueMusic, "Очередь воспроизведения", Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurface)
                 }
                 Text("${time(info.position)} / ${time(info.duration)}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelSmall)
                 IconButton(onClick = { settingsOpen = true }, enabled = enabled,
                     modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.MoreVert, "Дополнительные действия", Modifier.size(21.dp))
+                    Icon(Icons.Default.MoreVert, "Дополнительные действия", Modifier.size(21.dp),
+                        tint = MaterialTheme.colorScheme.onSurface)
                 }
             }
         }
@@ -689,13 +701,16 @@ private fun TrackRow(
                 )
             }
             IconButton(onClick = onText, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.NoteAlt, "Показать/добавить текст", Modifier.size(20.dp))
+                Icon(Icons.Default.NoteAlt, "Показать/добавить текст", Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurface)
             }
             IconButton(onClick = onAdd, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.PlaylistAdd, "В плейлист", Modifier.size(20.dp))
+                Icon(Icons.Default.PlaylistAdd, "В плейлист", Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurface)
             }
             IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.DeleteOutline, "Убрать из библиотеки", Modifier.size(19.dp))
+                Icon(Icons.Default.DeleteOutline, "Убрать из библиотеки", Modifier.size(19.dp),
+                    tint = MaterialTheme.colorScheme.onSurface)
             }
         }
     }

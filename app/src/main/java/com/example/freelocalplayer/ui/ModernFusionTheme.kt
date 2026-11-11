@@ -53,15 +53,15 @@ internal enum class FusionPalette(val label: String, val detail: String) {
 private val studioScheme = darkColorScheme(
     primary = Color(0xFFA9B9FF),
     onPrimary = Color(0xFF111D41),
-    secondary = Color(0xFFC3CBDE),
+    secondary = Color(0xFFD4DCEC),
     onSecondary = Color(0xFF242C39),
     background = Color(0xFF101318),
     onBackground = Color(0xFFF4F5F7),
     surface = Color(0xFF20252D),
     onSurface = Color(0xFFF4F5F7),
     surfaceVariant = Color(0xFF303744),
-    onSurfaceVariant = Color(0xFFCDD3DE),
-    outline = Color(0xFF8693A8)
+    onSurfaceVariant = Color(0xFFDFE5F0),
+    outline = Color(0xFFA9B6C9)
 )
 private val lightScheme = lightColorScheme(
     primary = Color(0xFF465FBE),
@@ -128,7 +128,8 @@ internal fun FusionGlassCard(
         shape = RoundedCornerShape(22.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.32f)),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.93f)
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.93f),
+            contentColor = MaterialTheme.colorScheme.onSurface
         ),
         content = content
     )
