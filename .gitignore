@@ -1,0 +1,55 @@
+.gradle/
+.idea/
+*.iml
+/build/
+/app/build/
+local.properties
+.DS_Store
+*.apk
+*.aab
+# >>> FreeLocalPlayer safe-sync rules >>>
+# Android Studio, Gradle and transient outputs
+.gradle/
+.idea/
+.kotlin/
+.cxx/
+.externalNativeBuild/
+**/build/
+/captures/
+/out/
+*.iml
+*.log
+# Machine-specific or confidential configuration
+local.properties
+**/local.properties
+**/secrets.properties
+**/google-services.json
+**/GoogleService-Info.plist
+**/.env
+**/.env.*
+**/id_rsa
+**/id_ed25519
+**/*.jks
+**/*.keystore
+**/*.p12
+**/*.pfx
+**/*.pem
+**/*.key
+**/*.asc
+**/*.mobileprovision
+# Binary builds, caches and source-transfer packages
+*.apk
+*.aab
+*.apks
+*.hprof
+*.db
+*.sqlite
+*.zip
+*.7z
+*.rar
+/.patch-backups/
+/.backups/
+/ready-to-install/
+/backup/
+/backups/
+# <<< FreeLocalPlayer safe-sync rules <<<

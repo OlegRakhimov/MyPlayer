@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="resume_playback" android:enabled="true"
+        android:icon="@drawable/shortcut_play"
+        android:shortcutShortLabel="@string/shortcut_resume"
+        android:shortcutLongLabel="@string/shortcut_resume_long">
+        <intent android:action="com.example.freelocalplayer.RESUME"
+            android:targetPackage="com.example.freelocalplayer"
+            android:targetClass="com.example.freelocalplayer.MainActivity" />
+    </shortcut>
+    <shortcut android:shortcutId="my_playlists" android:enabled="true"
+        android:icon="@drawable/shortcut_playlists"
+        android:shortcutShortLabel="@string/shortcut_playlists"
+        android:shortcutLongLabel="@string/shortcut_playlists">
+        <intent android:action="com.example.freelocalplayer.PLAYLISTS"
+            android:targetPackage="com.example.freelocalplayer"
+            android:targetClass="com.example.freelocalplayer.MainActivity" />
+    </shortcut>
+    <shortcut android:shortcutId="recently_played" android:enabled="true"
+        android:icon="@drawable/shortcut_recent"
+        android:shortcutShortLabel="@string/shortcut_recent"
+        android:shortcutLongLabel="@string/shortcut_recent">
+        <intent android:action="com.example.freelocalplayer.RECENT"
+            android:targetPackage="com.example.freelocalplayer"
+            android:targetClass="com.example.freelocalplayer.MainActivity" />
+    </shortcut>
+    <shortcut android:shortcutId="favorites" android:enabled="true"
+        android:icon="@drawable/shortcut_favorites"
+        android:shortcutShortLabel="@string/shortcut_favorites"
+        android:shortcutLongLabel="@string/shortcut_favorites">
+        <intent android:action="com.example.freelocalplayer.FAVORITES"
+            android:targetPackage="com.example.freelocalplayer"
+            android:targetClass="com.example.freelocalplayer.MainActivity" />
+    </shortcut>
+</shortcuts>

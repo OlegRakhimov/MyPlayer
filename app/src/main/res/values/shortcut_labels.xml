@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shortcut_resume">Продолжить</string>
+    <string name="shortcut_resume_long">Продолжить воспроизведение</string>
+    <string name="shortcut_playlists">Мои плейлисты</string>
+    <string name="shortcut_recent">Недавние</string>
+    <string name="shortcut_favorites">Избранное</string>
+</resources>

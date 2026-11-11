@@ -1,0 +1,7 @@
+﻿--------- beginning of main
+11-10 20:47:18.111 I/FLP_CHORD_DIAG(24477): START
+11-10 20:47:18.123 I/FLP_CHORD_DIAG(24477): SOURCE mime=audio/mpeg durationMs=240013
+11-10 20:47:18.154 I/FLP_CHORD_DIAG(24477): PCM_START rate=44100 channels=2
+11-10 20:48:06.176 I/FLP_CHORD_DIAG(24477): RESULT processedMs=239986 fftFrames=644 harmonicFrames=644 windows=120 harmonicWindows=120 resultCues=0 identified=0 distinct=0
+11-10 20:48:06.176 W/FLP_CHORD_DIAG(24477): EMPTY_RESULT stage=chord-classification; processedMs=239986 fftFrames=644 harmonicFrames=644 windows=120 harmonicWindows=120 resultCues=0
+11-10 20:48:06.176 E/FLP_CHORD_DIAG(24477): FAIL stage=chord-classification type=IOException message=╨Ф╨╡╨║╨╛╨┤╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡ ╨╖╨░╨▓╨╡╤А╤И╨╕╨╗╨╛╤Б╤М, ╨╜╨╛ ╤Г╨▓╨╡╤А╨╡╨╜╨╜╨╛ ╤А╨░╤Б╨┐╨╛╨╖╨╜╨░╤В╤М ╨│╨░╤А╨╝╨╛╨╜╨╕╤О ╨╜╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М. ╨Я╤А╨╛╨▓╨╡╤А╤М, ╨╡╤Б╤В╤М ╨╗╨╕ ╨╖╨▓╤Г╨║ ╨▓ ╤Д╨░╨╣╨╗╨╡; ╨┤╨╗╤П ╤Б╨╗╨╛╨╢╨╜╨╛╨╣ ╨╖╨░╨┐╨╕╤Б╨╕ ╨┐╨╛╨┐╤А╨╛╨▒╤Г╨╣ MIDI ╨╕╨╗╨╕ ╤А╤Г╤З╨╜╤Л╨╡ ╨░╨║╨║╨╛╤А╨┤╤Л. ╨б╤В╨░╤А╤Л╨╣ ╨░╨╜╨░╨╗╨╕╨╖ ╤Б╨╛╤Е╤А╨░╨╜╤С╨╜.
