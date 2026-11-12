@@ -24,6 +24,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.example.freelocalplayer.backup.AppDataBackup
 import com.example.freelocalplayer.data.LibraryState
 import com.example.freelocalplayer.data.LibraryStore
 import com.example.freelocalplayer.data.MediaEntry
@@ -47,6 +48,8 @@ import java.io.IOException
 class MainActivity : ComponentActivity() {
     private lateinit var store: LibraryStore
     private lateinit var musicRepository: MusicDataRepository
+    private val backupManager by lazy { AppDataBackup(this) }
+    private var backupBusy by mutableStateOf(false)
     private var musicRevision by mutableStateOf(0)
     private var analyzingMediaId by mutableStateOf<String?>(null)
     private var audioAnalysisPercent by mutableIntStateOf(0)
@@ -116,8 +119,34 @@ class MainActivity : ComponentActivity() {
         if (uri != null && mediaId != null) importLyrics(mediaId, uri)
     }
 
+    private val createBackupPicker = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri -> if (uri != null) exportBackup(uri) }
+
+    private val importBackupPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) inspectBackupForRestore(uri) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (backupManager.hasInterruptedRestore()) {
+            setContent { androidx.compose.material3.Text("Восстанавливаю данные после сбоя…") }
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { backupManager.recoverPendingRestoreIfAny() }
+                    toast("Данные возвращены из защитной копии после сбоя")
+                    initializePlayer()
+                } catch (error: Exception) {
+                    toast("Защитный откат не удался, данные нельзя изменять: ${error.message}")
+                    finish()
+                }
+            }
+            return
+        }
+        initializePlayer()
+    }
+
+    private fun initializePlayer() {
         store = LibraryStore(this)
         musicRepository = MusicDataRepository(this)
         library = store.load()
@@ -220,8 +249,90 @@ class MainActivity : ComponentActivity() {
                 onRepeatChange = { mode ->
                     store.setRepeatMode(mode)
                     controller?.repeatMode = mode
-                }
+                },
+                onExportBackup = {
+                    if (!backupBusy) createBackupPicker.launch(
+                        "FreeLocalPlayer-backup-${System.currentTimeMillis()}.zip"
+                    )
+                },
+                onImportBackup = {
+                    if (!backupBusy) importBackupPicker.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                },
+                backupBusy = backupBusy
             )
+        }
+    }
+
+    private fun exportBackup(uri: Uri) {
+        if (backupBusy) return
+        if (analyzingMediaId != null || scanning || deviceScanning) {
+            toast("Дождись завершения анализа и сканирования перед экспортом")
+            return
+        }
+        backupBusy = true
+        lifecycleScope.launch {
+            try {
+                val summary = withContext(Dispatchers.IO) { backupManager.exportTo(uri) }
+                toast("ZIP сохранён и проверен: ${summary.tracks} файлов медиатеки, ${summary.playlists} списков")
+            } catch (error: Exception) {
+                toast("Экспорт не подтверждён: ${error.message}")
+            } finally { backupBusy = false }
+        }
+    }
+
+    private fun inspectBackupForRestore(uri: Uri) {
+        if (backupBusy) return
+        backupBusy = true
+        lifecycleScope.launch {
+            var staged: java.io.File? = null
+            try {
+                val (file, summary) = withContext(Dispatchers.IO) { backupManager.stageFromUri(uri) }
+                staged = file
+                val compatibility = if (summary.sourcePackage == packageName) "" else
+                    "\nВ архиве другой пакет приложения: ${summary.sourcePackage}. " +
+                    "Доступ к отдельным медиафайлам может потребоваться выдать снова."
+                android.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Проверенный резервный ZIP")
+                    .setMessage("Файлов в каталоге: ${summary.tracks}; плейлистов: ${summary.playlists}; " +
+                        "дополнительных MIDI/аккордовых файлов: ${summary.musicFiles}." +
+                        "\nВсе контрольные суммы совпали." +
+                        "\nВНИМАНИЕ: импорт ЗАМЕНИТ текущие данные, " +
+                        "предварительно сохранив защитную копию внутри приложения." + compatibility)
+                    .setNegativeButton("Отмена") { _, _ -> file.delete() }
+                    .setPositiveButton("Восстановить") { _, _ -> restoreBackup(file) }
+                    .setOnCancelListener { file.delete() }
+                    .show()
+                staged = null // Dialog owns the staged snapshot until user's decision.
+            } catch (error: Exception) {
+                toast("Архив отклонён без изменений: ${error.message}")
+            } finally {
+                staged?.delete()
+                backupBusy = false
+            }
+        }
+    }
+
+    private fun restoreBackup(staged: java.io.File) {
+        if (backupBusy) { staged.delete(); return }
+        if (analyzingMediaId != null || scanning || deviceScanning) {
+            toast("Дождись завершения анализа и сканирования перед импортом")
+            staged.delete()
+            return
+        }
+        backupBusy = true
+        controller?.pause()
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { backupManager.restoreVerified(staged) }
+                controller?.clearMediaItems()
+                toast("Данные восстановлены. Открываю обновлённую библиотеку")
+                recreate()
+            } catch (error: Exception) {
+                toast("Импорт остановлен: ${error.message}. Проверь сообщения, не удаляй приложение")
+            } finally {
+                staged.delete()
+                backupBusy = false
+            }
         }
     }
 
@@ -295,7 +406,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun scanPhone(force: Boolean) {
-        if (deviceScanning || !DeviceMediaScanner.canReadAny(this)) return
+        if (backupBusy || deviceScanning || !DeviceMediaScanner.canReadAny(this)) return
         if (!force && SystemClock.elapsedRealtime() - lastDeviceScanAt < 60_000L) return
         deviceScanning = true
         lastDeviceScanAt = SystemClock.elapsedRealtime()

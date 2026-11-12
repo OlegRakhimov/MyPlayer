@@ -166,7 +166,10 @@ fun PlayerApp(
     onRemoveMedia: (String) -> Unit,
     onSpeedChange: (Float) -> Unit,
     onShuffleChange: (Boolean) -> Unit,
-    onRepeatChange: (Int) -> Unit
+    onRepeatChange: (Int) -> Unit,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit,
+    backupBusy: Boolean
 ) {
     // Appearance settings are local-only; media and playlist storage are untouched.
     val fusionContext = LocalContext.current
@@ -176,6 +179,7 @@ fun PlayerApp(
     var paletteKey by remember { mutableStateOf(fusionPrefs.getString("palette", "STUDIO_DARK")) }
     var reducedMotion by remember { mutableStateOf(fusionPrefs.getBoolean("reduced_motion", false)) }
     var fusionSettingsOpen by remember { mutableStateOf(false) }
+    var backupMenuOpen by remember { mutableStateOf(false) }
     val fusionPalette = FusionPalette.fromStored(paletteKey)
     var playback by remember { mutableStateOf(PlaybackInfo()) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -260,6 +264,10 @@ fun PlayerApp(
                 }
                 Text("${library.media.size}", style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onBackground)
+                IconButton(onClick = { backupMenuOpen = true }) {
+                    Icon(Icons.Default.Save, "Резервная копия и восстановление",
+                        tint = MaterialTheme.colorScheme.onBackground)
+                }
                 IconButton(onClick = { fusionSettingsOpen = true }) {
                     Icon(Icons.Default.Palette, "Выбрать оформление",
                         tint = MaterialTheme.colorScheme.onBackground)
@@ -534,6 +542,38 @@ fun PlayerApp(
 
         }
 
+        if (backupBusy) {
+            AlertDialog(
+                onDismissRequest = {},
+                title = { Text("Резервное копирование") },
+                text = { Text("Проверка и обработка данных. Не закрывай приложение до окончания операции.") },
+                confirmButton = {}
+            )
+        }
+        if (backupMenuOpen) {
+            AlertDialog(
+                onDismissRequest = { backupMenuOpen = false },
+                title = { Text("Резервная копия") },
+                text = {
+                    Text("ZIP сохраняет тексты, списки, избранное, настройки, MIDI и правки аккордов. " +
+                        "Сами музыкальные и видеофайлы не включаются. " +
+                        "При переносе в другое приложение может потребоваться заново разрешить доступ к файлам.")
+                },
+                confirmButton = {
+                    Row {
+                        TextButton(onClick = { backupMenuOpen = false; onExportBackup() }) {
+                            Text("Экспорт ZIP")
+                        }
+                        TextButton(onClick = { backupMenuOpen = false; onImportBackup() }) {
+                            Text("Импорт ZIP")
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { backupMenuOpen = false }) { Text("Закрыть") }
+                }
+            )
+        }
         if (fusionSettingsOpen) {
             FusionSettingsDialog(
                 selected = fusionPalette,
