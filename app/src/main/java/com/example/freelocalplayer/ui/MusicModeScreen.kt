@@ -85,7 +85,6 @@ import com.example.freelocalplayer.music.ChordCue
 import com.example.freelocalplayer.music.ChordCorrection
 import com.example.freelocalplayer.music.ChordCorrections
 import com.example.freelocalplayer.music.ChordDisplayFilter
-import com.example.freelocalplayer.music.ABRepeat
 import com.example.freelocalplayer.music.ChordTimeline
 import com.example.freelocalplayer.music.MusicDataRepository
 import com.example.freelocalplayer.music.MusicScore
@@ -176,8 +175,8 @@ internal fun MusicModeScreen(
     var positionDragging by remember { mutableStateOf(false) }
     var sliderValue by remember { mutableFloatStateOf(0f) }
     var precisePosition by remember(entry.id) { mutableLongStateOf(playback.position) }
-    var loopA by remember(entry.id) { mutableStateOf<Long?>(null) }
-    var loopB by remember(entry.id) { mutableStateOf<Long?>(null) }
+    // Per-track A–B practice repeat is independent of chord-file editing.
+    var practiceLoop by remember(entry.id) { mutableStateOf(PracticeLoopState()) }
     var lastLoopSeekAt by remember(entry.id) { mutableLongStateOf(0L) }
     var editCue by remember(entry.id) { mutableStateOf<ChordCue?>(null) }
     var chordNameDraft by remember(entry.id) { mutableStateOf("") }
@@ -207,17 +206,21 @@ internal fun MusicModeScreen(
         ChordCorrections.apply(displayBaseCues, state.corrections, sourceId)
     }
     val musicPosition = if (controller?.currentMediaItem?.mediaId == entry.id) precisePosition else playback.position
-    LaunchedEffect(entry.id, controller, loopA, loopB) {
+    LaunchedEffect(entry.id, controller, practiceLoop) {
         while (isActive) {
             precisePosition = controller?.currentPosition?.coerceAtLeast(0L) ?: playback.position
-            val a = loopA
-            val b = loopB
-            if (controller != null && a != null && b != null && ABRepeat.shouldRepeat(a, b, precisePosition, controller.isPlaying) &&
-                android.os.SystemClock.elapsedRealtime() - lastLoopSeekAt > 250L
+            // Never seek an unrelated track if the queue changes before composition updates.
+            val isCurrentTrack = controller?.currentMediaItem?.mediaId == entry.id
+            if (controller != null && PracticeLoopRules.shouldSeek(
+                    practiceLoop, precisePosition, controller.isPlaying, isCurrentTrack
+                ) && android.os.SystemClock.elapsedRealtime() - lastLoopSeekAt > 250L
             ) {
-                lastLoopSeekAt = android.os.SystemClock.elapsedRealtime()
-                controller.seekTo(a)
-                precisePosition = a
+                val loopStart = practiceLoop.startMs
+                if (loopStart != null) {
+                    lastLoopSeekAt = android.os.SystemClock.elapsedRealtime()
+                    controller.seekTo(loopStart)
+                    precisePosition = loopStart
+                }
             }
             delay(if (controller?.isPlaying == true) 50L else 150L)
         }
@@ -438,6 +441,18 @@ internal fun MusicModeScreen(
                                     modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurface)
                             }
                         }
+                        if (PracticeLoopRules.isReady(practiceLoop) && !controlsExpanded) {
+                            val aText = practiceLoop.startMs?.let(::musicTime) ?: "—"
+                            val bText = practiceLoop.endMs?.let(::musicTime) ?: "—"
+                            Text(
+                                if (practiceLoop.enabled) "↻ A $aText – B $bText"
+                                else "Повтор A–B на паузе · $aText – $bText",
+                                color = if (practiceLoop.enabled) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(start = 6.dp, bottom = 3.dp)
+                            )
+                        }
                         if (controlsExpanded) {
                             Slider(
                                 value = sliderValue,
@@ -462,6 +477,19 @@ internal fun MusicModeScreen(
                                     controller?.seekTo(musicSeekTarget(musicPosition, 10_000L, playback.duration))
                                 }) { Text("+10 с") }
                             }
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                            PracticeLoopControls(
+                                loop = practiceLoop,
+                                positionMs = musicPosition,
+                                durationMs = playback.duration,
+                                onChange = { practiceLoop = it },
+                                onSeekToStart = { start ->
+                                    if (controller?.currentMediaItem?.mediaId == entry.id) {
+                                        controller?.seekTo(start)
+                                    }
+                                },
+                                showPrecision = false
+                            )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.End
@@ -506,6 +534,20 @@ internal fun MusicModeScreen(
                                 OutlinedButton(onClick = { mode = view; showTools = false }) { Text(view) }
                             }
                         }
+                        Text("Практика: повтор A–B", style = MaterialTheme.typography.titleMedium)
+                        PracticeLoopControls(
+                            loop = practiceLoop,
+                            positionMs = musicPosition,
+                            durationMs = playback.duration,
+                            onChange = { practiceLoop = it },
+                            onSeekToStart = { start ->
+                                if (controller?.currentMediaItem?.mediaId == entry.id) {
+                                    controller?.seekTo(start)
+                                }
+                            },
+                            showPrecision = true
+                        )
+                        HorizontalDivider()
                         Text("Скорость воспроизведения: ${"%.2f".format(java.util.Locale.US, playback.speed)}×",
                             style = MaterialTheme.typography.titleMedium)
                         Slider(value = playback.speed.coerceIn(0.5f, 2.0f),
@@ -567,39 +609,8 @@ internal fun MusicModeScreen(
                             Text(if (editChords) "Скрыть редактор аккордов" else "Редактировать файл аккордов")
                         }
                         if (editChords) {
-                            Text("Повтор участка при редактировании аккордов",
-                                style = MaterialTheme.typography.labelMedium)
-                            Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            loopA = musicPosition
-                            if (loopB != null && loopB!! <= musicPosition + 250L) loopB = null
-                        },
-                        contentPadding = PaddingValues(horizontal = 9.dp)
-                    ) { Text("A") }
-                    OutlinedButton(
-                        onClick = { if (loopA != null && musicPosition > loopA!! + 250L) loopB = musicPosition },
-                        enabled = loopA != null && musicPosition > loopA!! + 250L,
-                        contentPadding = PaddingValues(horizontal = 9.dp)
-                    ) { Text("B") }
-                    Text(
-                        when {
-                            loopA == null -> "Повтор A–B"
-                            loopB == null -> "A: ${musicTime(loopA!!)}"
-                            else -> "↻ ${musicTime(loopA!!)} – ${musicTime(loopB!!)}"
-                        },
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    TextButton(onClick = { loopA = null; loopB = null }, enabled = loopA != null) {
-                        Text("Сброс")
-                    }
-                }
+                            // A–B controls live in the transport and Practice section,
+                            // not inside the editable chord-file text field.
                             OutlinedTextField(
                                 value = chordDraft,
                                 onValueChange = { chordDraft = it },
@@ -690,6 +701,83 @@ internal fun MusicModeScreen(
                 }
             }
         )
+    }
+}
+
+
+/** A–B repeat controls are available during ordinary listening and in practice tools. */
+@Composable
+private fun PracticeLoopControls(
+    loop: PracticeLoopState,
+    positionMs: Long,
+    durationMs: Long,
+    onChange: (PracticeLoopState) -> Unit,
+    onSeekToStart: (Long) -> Unit,
+    showPrecision: Boolean
+) {
+    val ready = PracticeLoopRules.isReady(loop)
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(
+            when {
+                loop.startMs == null -> "Повтор A–B: отметь начало A во время воспроизведения"
+                loop.endMs == null -> "A ${musicTime(loop.startMs)} · отметь конец B (не менее 0,25 с)"
+                loop.enabled -> "↻ A ${musicTime(loop.startMs)} — B ${musicTime(loop.endMs)} · повтор включён"
+                else -> "A ${musicTime(loop.startMs)} — B ${musicTime(loop.endMs)} · повтор на паузе"
+            },
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.labelSmall
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(
+                onClick = { onChange(PracticeLoopRules.markStart(loop, positionMs, durationMs)) },
+                enabled = PracticeLoopRules.canMarkStart(positionMs, durationMs),
+                contentPadding = PaddingValues(horizontal = 12.dp)
+            ) { Text("Установить A") }
+            OutlinedButton(
+                onClick = { onChange(PracticeLoopRules.markEnd(loop, positionMs, durationMs)) },
+                enabled = PracticeLoopRules.canMarkEnd(loop, positionMs, durationMs),
+                contentPadding = PaddingValues(horizontal = 12.dp)
+            ) { Text("Установить B") }
+            TextButton(
+                onClick = { onChange(PracticeLoopRules.setEnabled(loop, !loop.enabled)) },
+                enabled = ready
+            ) { Text(if (loop.enabled) "Пауза повтора" else "Включить повтор") }
+            TextButton(
+                onClick = { onChange(PracticeLoopState()) },
+                enabled = loop.startMs != null
+            ) { Text("Сброс") }
+        }
+        if (showPrecision && ready) {
+            Text("Точная настройка границ (шаг 0,1 с)",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall)
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                listOf(
+                    Triple(PracticeLoopBoundary.START, -100L, "A −0,1"),
+                    Triple(PracticeLoopBoundary.START, 100L, "A +0,1"),
+                    Triple(PracticeLoopBoundary.END, -100L, "B −0,1"),
+                    Triple(PracticeLoopBoundary.END, 100L, "B +0,1")
+                ).forEach { (boundary, delta, label) ->
+                    val shifted = PracticeLoopRules.shift(loop, boundary, delta, durationMs)
+                    OutlinedButton(
+                        onClick = { onChange(shifted) },
+                        enabled = shifted != loop,
+                        contentPadding = PaddingValues(horizontal = 9.dp)
+                    ) { Text(label) }
+                }
+                TextButton(onClick = { loop.startMs?.let(onSeekToStart) }) {
+                    Text("В точку A")
+                }
+            }
+        }
     }
 }
 
