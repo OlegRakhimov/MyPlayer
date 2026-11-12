@@ -11,8 +11,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -38,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
@@ -52,6 +56,7 @@ import androidx.compose.ui.window.DialogProperties
 import kotlin.math.abs
 import com.example.freelocalplayer.lyrics.LrcParser
 import com.example.freelocalplayer.lyrics.LrcTimingAdjuster
+import com.example.freelocalplayer.lyrics.EnhancedLrcWordAdjuster
 import com.example.freelocalplayer.lyrics.LyricLineSync
 import com.example.freelocalplayer.lyrics.TimedLine
 import com.example.freelocalplayer.music.ChordCue
@@ -82,6 +87,7 @@ internal fun LyricsChordsScreen(
     var autoFollow by remember(lyrics) { mutableStateOf(true) }
     var editTimingMode by remember(lyrics) { mutableStateOf(false) }
     var selectedTimingIndex by remember(lyrics) { mutableStateOf<Int?>(null) }
+    var selectedWordLineIndex by remember(lyrics) { mutableStateOf<Int?>(null) }
     val editableCues = remember(lyrics) { LrcTimingAdjuster.cues(lyrics) }
     var lineMarks by remember(lyrics) { mutableStateOf<List<Long>>(emptyList()) }
     val plainLines = remember(lyrics) { LyricLineSync.lines(lyrics) }
@@ -163,6 +169,21 @@ internal fun LyricsChordsScreen(
                                             else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Spacer(Modifier.height(4.dp))
+                                if (item.lyric.words.isNotEmpty()) {
+                                    val canEditWords = EnhancedLrcWordAdjuster.words(lyrics, index).isNotEmpty()
+                                    TextButton(
+                                        onClick = {
+                                            selectedTimingIndex = null
+                                            selectedWordLineIndex = index
+                                        },
+                                        enabled = canEditWords
+                                    ) { Text("Настроить слова") }
+                                    if (!canEditWords) {
+                                        Text("Общие метки слов: доступно ручное редактирование LRC",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
                             }
                             if (item.lyric.words.isNotEmpty()) {
                                 // Enhanced LRC contains actual word timestamps. The
@@ -295,6 +316,106 @@ internal fun LyricsChordsScreen(
                 TextButton(onClick = { selectedTimingIndex = null }) { Text("Отмена") }
             }
         )
+    }
+    // Word timing is edited independently; existing line timing remains unchanged.
+    val editWordLine = selectedWordLineIndex
+    if (editWordLine != null) {
+        val lineWords = remember(lyrics, editWordLine) {
+            EnhancedLrcWordAdjuster.words(lyrics, editWordLine)
+        }
+        if (lineWords.isNotEmpty()) {
+            var selectedWordIndex by remember(lyrics, editWordLine) { mutableIntStateOf(0) }
+            val selectedWord = lineWords.getOrNull(selectedWordIndex)
+            if (selectedWord != null) {
+                var wordCandidateMs by remember(lyrics, editWordLine, selectedWordIndex) {
+                    mutableLongStateOf(selectedWord.timeMs)
+                }
+                val updatedLyrics = remember(lyrics, editWordLine, selectedWordIndex,
+                    wordCandidateMs, durationMs) {
+                    EnhancedLrcWordAdjuster.retimeWord(lyrics, editWordLine, selectedWordIndex,
+                        wordCandidateMs, durationMs)
+                }
+                AlertDialog(
+                    onDismissRequest = { selectedWordLineIndex = null },
+                    title = { Text("Время слова Enhanced LRC") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Выбери слово:", style = MaterialTheme.typography.labelMedium)
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 140.dp)
+                                    .verticalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                lineWords.forEachIndexed { index, word ->
+                                    FilterChip(
+                                        selected = selectedWordIndex == index,
+                                        onClick = { selectedWordIndex = index },
+                                        label = { Text(word.text.take(26)) }
+                                    )
+                                }
+                            }
+                            Text("Было: ${LyricLineSync.formatTime(selectedWord.timeMs)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Новое: ${LyricLineSync.formatTime(wordCandidateMs)}",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.titleMedium)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                listOf(-500L, -100L, 100L, 500L).forEach { delta ->
+                                    val proposal = wordCandidateMs + delta
+                                    OutlinedButton(
+                                        enabled = EnhancedLrcWordAdjuster.retimeWord(
+                                            lyrics, editWordLine, selectedWordIndex, proposal,
+                                            durationMs) != null,
+                                        onClick = { wordCandidateMs = proposal }
+                                    ) {
+                                        Text(when (delta) {
+                                            -500L -> "−0,5 с"
+                                            -100L -> "−0,1 с"
+                                            100L -> "+0,1 с"
+                                            else -> "+0,5 с"
+                                        })
+                                    }
+                                }
+                            }
+                            val playbackTarget = positionMs.coerceAtLeast(0L)
+                            TextButton(
+                                onClick = { wordCandidateMs = playbackTarget },
+                                enabled = EnhancedLrcWordAdjuster.retimeWord(
+                                    lyrics, editWordLine, selectedWordIndex, playbackTarget,
+                                    durationMs) != null
+                            ) { Text("По текущей позиции песни") }
+                            Text("Другие слова и начало строки не изменяются.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (updatedLyrics == null) {
+                                Text("Время должно оставаться между соседними метками, " +
+                                    "внутри строки и длительности песни.",
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                if (updatedLyrics != null && updatedLyrics != lyrics) {
+                                    onSaveTimedLyrics(updatedLyrics)
+                                    selectedWordLineIndex = null
+                                    editTimingMode = false
+                                }
+                            },
+                            enabled = updatedLyrics != null && updatedLyrics != lyrics
+                        ) { Text("Сохранить") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { selectedWordLineIndex = null }) { Text("Отмена") }
+                    }
+                )
+            }
+        }
     }
     if (isTimingTxt && timed.isEmpty() && plainLines.isNotEmpty()) {
         Dialog(
