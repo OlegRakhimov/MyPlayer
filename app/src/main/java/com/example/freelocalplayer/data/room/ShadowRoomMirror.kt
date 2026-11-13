@@ -38,9 +38,19 @@ object ShadowRoomMirror {
      */
     @Synchronized
     fun mirror(context: Context, source: LibraryState) {
+        mirrorInto(open(context), source)
+        Log.i(TAG, "ROOM_MIRROR_VERIFIED tracks=${source.media.size} " +
+            "retired=${source.retiredMedia.size} playlists=${source.playlists.size}")
+    }
+
+    /**
+     * Exercise the exact production transaction with an isolated in-memory Room
+     * database in Android instrumented tests. The caller owns the database.
+     * This function never reads or changes SharedPreferences or user media.
+     */
+    internal fun mirrorInto(room: ShadowRoomDatabase, source: LibraryState) {
         val expected = ShadowRoomMapping.toRows(source)
         val signature = ShadowRoomMapping.fingerprint(expected)
-        val room = open(context)
         room.runInTransaction {
             val dao = room.dao()
             val previous = rows(dao)
@@ -95,8 +105,6 @@ object ShadowRoomMirror {
                 retiredTracks = source.retiredMedia.size
             ))
         }
-        Log.i(TAG, "ROOM_MIRROR_VERIFIED tracks=${source.media.size} " +
-            "retired=${source.retiredMedia.size} playlists=${source.playlists.size}")
     }
 
     /** Non-fatal: protects the canonical JSON if Room fails to compile/open/write. */
