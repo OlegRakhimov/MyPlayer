@@ -4,9 +4,11 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import com.example.freelocalplayer.data.room.ShadowRoomMirror
 
 /** Persists user-added URI references and lyrics only. Media bytes never leave the device. */
 class LibraryStore(context: Context) {
+    private val appContext = context.applicationContext
     // Application context only: queued disk writes must survive Activity recreation.
     private val preferences = context.applicationContext.getSharedPreferences(
         "local_library_v1", Context.MODE_PRIVATE
@@ -15,7 +17,8 @@ class LibraryStore(context: Context) {
     private data class WriteRequest(
         val preferences: android.content.SharedPreferences,
         val snapshot: LibraryState,
-        val onError: (Throwable) -> Unit
+        val onError: (Throwable) -> Unit,
+        val context: Context
     )
 
     companion object {
@@ -27,6 +30,9 @@ class LibraryStore(context: Context) {
                 if (!request.preferences.edit().putString("library", json).commit()) {
                     throw IOException("SharedPreferences.commit() вернул false")
                 }
+                // Stage 0-C.2: Room is a non-authoritative replica; its failure MUST
+                // NOT turn a successful canonical JSON write into a reported failure.
+                ShadowRoomMirror.tryMirror(request.context, request.snapshot)
             },
             onWriteFailure = { request, error -> request.onError(error) }
         )
@@ -81,73 +87,79 @@ class LibraryStore(context: Context) {
         }
     }
 
-    fun load(): LibraryState = try {
-        val root = JSONObject(preferences.getString("library", "{}") ?: "{}")
-        val media = root.optJSONArray("media")?.let { array ->
-            (0 until array.length()).mapNotNull { index ->
-                val obj = array.optJSONObject(index) ?: return@mapNotNull null
-                val id = obj.optString("id")
-                val uri = obj.optString("uri")
-                if (id.isEmpty() || uri.isEmpty()) return@mapNotNull null
-                MediaEntry(
-                    id = id,
-                    uri = uri,
-                    title = obj.optString("title", "Без названия"),
-                    isVideo = obj.optBoolean("video", false),
-                    lyrics = obj.optString("lyrics", ""),
-                    sourceKey = obj.optString("sourceKey", ""),
-                    sizeBytes = obj.optLong("sizeBytes", -1L),
-                    durationMs = obj.optLong("durationMs", -1L)
-                )
-            }
-        } ?: emptyList()
-        val playlists = root.optJSONArray("playlists")?.let { array ->
-            (0 until array.length()).mapNotNull { index ->
-                val obj = array.optJSONObject(index) ?: return@mapNotNull null
-                val id = obj.optString("id")
-                if (id.isEmpty()) return@mapNotNull null
-                val ids = obj.optJSONArray("mediaIds")?.let { idArray ->
-                    (0 until idArray.length()).mapNotNull { i -> idArray.optString(i).takeIf(String::isNotEmpty) }
-                } ?: emptyList()
-                UserPlaylist(id, obj.optString("name", "Мой список"), ids)
-            }
-        } ?: emptyList()
-        val retired = root.optJSONArray("retiredMedia")?.let { array ->
-            (0 until array.length()).mapNotNull { index ->
-                val wrapper = array.optJSONObject(index) ?: return@mapNotNull null
-                val obj = wrapper.optJSONObject("entry") ?: return@mapNotNull null
-                val id = obj.optString("id")
-                val uri = obj.optString("uri")
-                if (id.isBlank() || uri.isBlank()) return@mapNotNull null
-                val entry = MediaEntry(
-                    id = id, uri = uri,
-                    title = obj.optString("title", "Без названия"),
-                    isVideo = obj.optBoolean("video", false),
-                    lyrics = obj.optString("lyrics", ""),
-                    sourceKey = obj.optString("sourceKey", ""),
-                    sizeBytes = obj.optLong("sizeBytes", -1L),
-                    durationMs = obj.optLong("durationMs", -1L)
-                )
-                val places = wrapper.optJSONArray("playlistPlaces")?.let { refs ->
-                    (0 until refs.length()).mapNotNull placeLoop@{ i ->
-                        val place = refs.optJSONObject(i) ?: return@placeLoop null
-                        val playlistId = place.optString("playlistId")
-                        val slot = place.optInt("index", -1)
-                        if (playlistId.isBlank() || slot < 0) null else PlaylistPlace(playlistId, slot)
-                    }
-                } ?: emptyList()
-                RetiredMedia(entry, places)
-            }
-        } ?: emptyList()
-        LibraryState(media, playlists, retired)
-    } catch (error: Exception) {
-        // Returning an empty library would silently destroy user data at next save.
-        throw IOException("Повреждён JSON медиатеки; запись отключена до восстановления", error)
+    fun load(): LibraryState {
+        val loaded = try {
+            val root = JSONObject(preferences.getString("library", "{}") ?: "{}")
+            val media = root.optJSONArray("media")?.let { array ->
+                (0 until array.length()).mapNotNull { index ->
+                    val obj = array.optJSONObject(index) ?: return@mapNotNull null
+                    val id = obj.optString("id")
+                    val uri = obj.optString("uri")
+                    if (id.isEmpty() || uri.isEmpty()) return@mapNotNull null
+                    MediaEntry(
+                        id = id,
+                        uri = uri,
+                        title = obj.optString("title", "Без названия"),
+                        isVideo = obj.optBoolean("video", false),
+                        lyrics = obj.optString("lyrics", ""),
+                        sourceKey = obj.optString("sourceKey", ""),
+                        sizeBytes = obj.optLong("sizeBytes", -1L),
+                        durationMs = obj.optLong("durationMs", -1L)
+                    )
+                }
+            } ?: emptyList()
+            val playlists = root.optJSONArray("playlists")?.let { array ->
+                (0 until array.length()).mapNotNull { index ->
+                    val obj = array.optJSONObject(index) ?: return@mapNotNull null
+                    val id = obj.optString("id")
+                    if (id.isEmpty()) return@mapNotNull null
+                    val ids = obj.optJSONArray("mediaIds")?.let { idArray ->
+                        (0 until idArray.length()).mapNotNull { i -> idArray.optString(i).takeIf(String::isNotEmpty) }
+                    } ?: emptyList()
+                    UserPlaylist(id, obj.optString("name", "Мой список"), ids)
+                }
+            } ?: emptyList()
+            val retired = root.optJSONArray("retiredMedia")?.let { array ->
+                (0 until array.length()).mapNotNull { index ->
+                    val wrapper = array.optJSONObject(index) ?: return@mapNotNull null
+                    val obj = wrapper.optJSONObject("entry") ?: return@mapNotNull null
+                    val id = obj.optString("id")
+                    val uri = obj.optString("uri")
+                    if (id.isBlank() || uri.isBlank()) return@mapNotNull null
+                    val entry = MediaEntry(
+                        id = id, uri = uri,
+                        title = obj.optString("title", "Без названия"),
+                        isVideo = obj.optBoolean("video", false),
+                        lyrics = obj.optString("lyrics", ""),
+                        sourceKey = obj.optString("sourceKey", ""),
+                        sizeBytes = obj.optLong("sizeBytes", -1L),
+                        durationMs = obj.optLong("durationMs", -1L)
+                    )
+                    val places = wrapper.optJSONArray("playlistPlaces")?.let { refs ->
+                        (0 until refs.length()).mapNotNull placeLoop@{ i ->
+                            val place = refs.optJSONObject(i) ?: return@placeLoop null
+                            val playlistId = place.optString("playlistId")
+                            val slot = place.optInt("index", -1)
+                            if (playlistId.isBlank() || slot < 0) null else PlaylistPlace(playlistId, slot)
+                        }
+                    } ?: emptyList()
+                    RetiredMedia(entry, places)
+                }
+            } ?: emptyList()
+            LibraryState(media, playlists, retired)
+        } catch (error: Exception) {
+            // Returning an empty library would silently destroy user data at next save.
+            throw IOException("Повреждён JSON медиатеки; запись отключена до восстановления", error)
+        }
+        // After SAF import/recovery, JSON may be newer than the shadow database.
+        // This function is called on Dispatchers.IO in MainActivity.
+        ShadowRoomMirror.tryMirror(appContext, loaded)
+        return loaded
     }
 
     /** Non-blocking for UI callers. Coalesces superseded whole-library snapshots. */
     fun save(state: LibraryState, onError: (Throwable) -> Unit = {}) {
-        writer.submit(WriteRequest(preferences, state, onError))
+        writer.submit(WriteRequest(preferences, state, onError, appContext))
     }
 
     /** Call only from Dispatchers.IO before backup, import, or a new Activity load. */
