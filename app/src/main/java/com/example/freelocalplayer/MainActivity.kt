@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -88,6 +89,7 @@ class MainActivity : ComponentActivity() {
     private var selectedTextTrackId: String? = null
     private var scanning by mutableStateOf(false)
     private var deviceScanning by mutableStateOf(false)
+    private var playerReady = false
     private var initialScanHandled = false
     private var lastDeviceScanAt: Long = 0L
     private val permissionPreferences by lazy { getSharedPreferences("media_discovery_v1", MODE_PRIVATE) }
@@ -133,7 +135,10 @@ class MainActivity : ComponentActivity() {
             setContent { androidx.compose.material3.Text("Восстанавливаю данные после сбоя…") }
             lifecycleScope.launch {
                 try {
-                    withContext(Dispatchers.IO) { backupManager.recoverPendingRestoreIfAny() }
+                    withContext(Dispatchers.IO) {
+                        LibraryStore(applicationContext).awaitPendingWrites()
+                        backupManager.recoverPendingRestoreIfAny()
+                    }
                     toast("Данные возвращены из защитной копии после сбоя")
                     initializePlayer()
                 } catch (error: Exception) {
@@ -147,10 +152,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun initializePlayer() {
-        store = LibraryStore(this)
+        store = LibraryStore(applicationContext)
         musicRepository = MusicDataRepository(this)
-        library = store.load()
-        recentIds = libraryPreferences.getString("recent_ids", "")
+        setContent { androidx.compose.material3.Text("Загружаю медиатеку…") }
+        lifecycleScope.launch {
+            try {
+                // Include writes from a previous Activity instance before reading JSON.
+                val loaded = withContext(Dispatchers.IO) {
+                    store.awaitPendingWrites()
+                    store.load()
+                }
+                library = loaded
+                recentIds = libraryPreferences.getString("recent_ids", "")
             .orEmpty().split('|').filter { it.isNotBlank() }.distinct().take(50)
         favoriteIds = libraryPreferences.getStringSet("favorite_ids", emptySet())
             .orEmpty().toSet()
@@ -261,6 +274,30 @@ class MainActivity : ComponentActivity() {
                 backupBusy = backupBusy
             )
         }
+                playerReady = true
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                    scanAfterResumeIfReady()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Never allow a failed JSON load to become an empty, writable library.
+                playerReady = false
+                setContent {
+                    androidx.compose.foundation.layout.Column {
+                        androidx.compose.material3.Text(
+                            "Не удалось загрузить медиатеку. Данные не удалены. " +
+                            "Не очищай приложение. Причина: ${error.message}"
+                        )
+                        androidx.compose.material3.Button(onClick = {
+                            importBackupPicker.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                        }) {
+                            androidx.compose.material3.Text("Восстановить из резервного ZIP")
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun exportBackup(uri: Uri) {
@@ -272,7 +309,10 @@ class MainActivity : ComponentActivity() {
         backupBusy = true
         lifecycleScope.launch {
             try {
-                val summary = withContext(Dispatchers.IO) { backupManager.exportTo(uri) }
+                val summary = withContext(Dispatchers.IO) {
+                    store.awaitPendingWrites()
+                    backupManager.exportTo(uri)
+                }
                 toast("ZIP сохранён и проверен: ${summary.tracks} файлов медиатеки, ${summary.playlists} списков")
             } catch (error: Exception) {
                 toast("Экспорт не подтверждён: ${error.message}")
@@ -323,7 +363,10 @@ class MainActivity : ComponentActivity() {
         controller?.pause()
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) { backupManager.restoreVerified(staged) }
+                withContext(Dispatchers.IO) {
+                    store.awaitPendingWrites()
+                    backupManager.restoreVerified(staged)
+                }
                 controller?.clearMediaItems()
                 toast("Данные восстановлены. Открываю обновлённую библиотеку")
                 recreate()
@@ -381,6 +424,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onPostResume() {
         super.onPostResume()
+        scanAfterResumeIfReady()
+    }
+
+    private fun scanAfterResumeIfReady() {
+        if (!playerReady || backupBusy) return
         if (!initialScanHandled) {
             initialScanHandled = true
             if (DeviceMediaScanner.canReadAny(this)) {
@@ -415,10 +463,9 @@ class MainActivity : ComponentActivity() {
                 val found = withContext(Dispatchers.IO) {
                     DeviceMediaScanner.scan(this@MainActivity)
                 }
-                val before = library.media.size
-                changeLibrary { it.addMedia(found) }
-                if (force || library.media.size != before) {
-                    toast("Обнаружено: ${found.size}; новых: ${library.media.size - before}")
+                val additions = mergeScannedMedia(found)
+                if (force || additions != 0) {
+                    toast("Обнаружено: ${found.size}; новых: $additions")
                 }
             } catch (error: Exception) {
                 toast("Не удалось прочитать медиатеку: ${error.message}")
@@ -428,12 +475,40 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun persistLibrarySnapshot(next: LibraryState) {
+        // No JSON construction or SharedPreferences disk write on the UI thread.
+        store.save(next) { error ->
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) {
+                    toast("Ошибка сохранения медиатеки: ${error.message}. Сделай резервную копию после проверки.")
+                }
+            }
+        }
+    }
+
     private fun changeLibrary(change: (LibraryState) -> LibraryState) {
         val next = change(library)
         if (library != next) {
             library = next
-            store.save(next)
+            persistLibrarySnapshot(next)
         }
+    }
+
+    /** Merge thousands of scanner results off-main; retry if the user edited state meanwhile. */
+    private suspend fun mergeScannedMedia(found: List<MediaEntry>): Int {
+        repeat(4) {
+            val previous = library
+            val next = withContext(Dispatchers.Default) { previous.addMedia(found) }
+            // UI state is only changed after returning to the main dispatcher.
+            if (library === previous) {
+                if (previous != next) {
+                    library = next
+                    persistLibrarySnapshot(next)
+                }
+                return next.media.size - previous.media.size
+            }
+        }
+        throw IOException("Медиатека была изменена во время сканирования. Повтори поиск файлов.")
     }
 
     private fun connectPlayer() {
@@ -559,9 +634,8 @@ class MainActivity : ComponentActivity() {
                     }
                     found
                 }
-                val oldCount = library.media.size
-                changeLibrary { it.addMedia(results) }
-                toast("Из папки добавлено: ${library.media.size - oldCount}")
+                val additions = mergeScannedMedia(results)
+                toast("Из папки добавлено: $additions")
             } catch (exception: Exception) {
                 toast("Не удалось открыть папку: ${exception.message}")
             } finally {
