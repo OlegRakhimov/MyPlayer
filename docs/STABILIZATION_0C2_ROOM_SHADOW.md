@@ -1,6 +1,6 @@
 # FreeLocalPlayer — 0-C.2: транзакционная копия медиатеки в Room
 
-**Статус этого документа до установки:** пакет подготовлен и проверен локально; сборка Android/KSP, тесты на эмуляторе и производительность не подтверждены.
+**Статус на 13.11.2026:** пользователь прислал `BUILD SUCCESSFUL in 3m 44s`, `70 actionable tasks: 70 executed`, `GRADLE_BUILD_AND_TESTS=PASS`, `ROOM_SCHEMA_V1_EXPORTED=PASS count=1`, `GITHUB_PUSH=PASS REMOTE_HASH_VERIFIED=YES`, commit `f2c641a04ba4f4f4f73d928cb41fd0976e3348f2`. Коммит и schema v1 независимо сверены в GitHub. **Установка APK на телефон, запуск инструментального SQLite-теста на эмуляторе и реальное сравнение данных пока не подтверждены.** JSON остаётся источником истины; Room — теневой базой.
 
 ## Что меняется и чего не меняем
 
