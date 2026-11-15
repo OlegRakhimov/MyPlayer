@@ -107,6 +107,23 @@ object ShadowRoomMirror {
         }
     }
 
+    /**
+     * Read all rows and their stamp from ONE SQLite transaction, WITHOUT repair.
+     * Never create an empty database on the first launch just to read it.
+     * The caller must verify all rows against canonical JSON before using them.
+     */
+    @Synchronized
+    internal fun readSnapshotWithoutRepair(context: Context): Pair<ShadowRowSet, ShadowStamp?> {
+        if (!context.applicationContext.getDatabasePath(DATABASE_NAME).isFile) {
+            throw IllegalStateException("Shadow Room database is missing")
+        }
+        val room = open(context)
+        return room.runInTransaction<Pair<ShadowRowSet, ShadowStamp?>> {
+            val dao = room.dao()
+            rows(dao) to dao.stamp()
+        }
+    }
+
     /** Non-fatal: protects the canonical JSON if Room fails to compile/open/write. */
     fun tryMirror(context: Context, source: LibraryState) {
         try {

@@ -5,6 +5,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import com.example.freelocalplayer.data.room.ShadowRoomMirror
+import com.example.freelocalplayer.data.room.VerifiedRoomReadSelector
+import android.util.Log
 
 /** Persists user-added URI references and lyrics only. Media bytes never leave the device. */
 class LibraryStore(context: Context) {
@@ -87,8 +89,8 @@ class LibraryStore(context: Context) {
         }
     }
 
-    fun load(): LibraryState {
-        val loaded = try {
+    private fun readCanonicalJson(): LibraryState {
+        return try {
             val root = JSONObject(preferences.getString("library", "{}") ?: "{}")
             val media = root.optJSONArray("media")?.let { array ->
                 (0 until array.length()).mapNotNull { index ->
@@ -151,11 +153,51 @@ class LibraryStore(context: Context) {
             // Returning an empty library would silently destroy user data at next save.
             throw IOException("Повреждён JSON медиатеки; запись отключена до восстановления", error)
         }
-        // After SAF import/recovery, JSON may be newer than the shadow database.
-        // This function is called on Dispatchers.IO in MainActivity.
-        ShadowRoomMirror.tryMirror(appContext, loaded)
-        return loaded
     }
+
+    /**
+     * Runs only on a background thread, after awaitPendingWrites().
+     * Default remains JSON until a separately verified rollout enables the
+     * existing local_library_v1 / room_verified_read_0c3b preference. A valid
+     * canonical JSON snapshot is always parsed first and remains recoverable.
+     */
+    fun load(): LibraryState {
+        val canonical = readCanonicalJson()
+        val enabled = try {
+            preferences.getBoolean("room_verified_read_0c3b", false)
+        } catch (_: ClassCastException) {
+            false
+        }
+        val decision = selectVerifiedRoom(canonical, enabled)
+        when (decision.reason) {
+            VerifiedRoomReadSelector.Reason.VERIFIED ->
+                Log.i("FLP_ROOM_READ", "ROOM_READ_VERIFIED")
+            VerifiedRoomReadSelector.Reason.DISABLED ->
+                Log.i("FLP_ROOM_READ", "ROOM_READ_JSON_DEFAULT")
+            VerifiedRoomReadSelector.Reason.GATE_REJECTED ->
+                Log.w("FLP_ROOM_READ", "ROOM_READ_JSON_FALLBACK gate=${decision.validation}")
+            VerifiedRoomReadSelector.Reason.ROOM_READ_FAILED ->
+                Log.w("FLP_ROOM_READ", "ROOM_READ_JSON_FALLBACK read_error")
+        }
+        // Preserve existing behavior: JSON repairs an outdated Room mirror only
+        // AFTER the read decision was taken, never before verification.
+        // The source passed to the writer is ALWAYS canonical JSON, not a
+        // potentially stale or incomplete SQLite candidate.
+        ShadowRoomMirror.tryMirror(appContext, canonical)
+        return decision.state
+    }
+
+    private fun selectVerifiedRoom(canonical: LibraryState, enabled: Boolean) =
+        VerifiedRoomReadSelector.select(canonical, enabled) {
+            ShadowRoomMirror.readSnapshotWithoutRepair(appContext)
+        }
+
+    /**
+     * Device QA uses the exact production read path, but does not mutate the
+     * flag, persist new JSON or repair Room. Never run this on the UI thread.
+     */
+    internal fun previewVerifiedRoomReadWithoutRepairForQa(): VerifiedRoomReadSelector.Decision =
+        selectVerifiedRoom(readCanonicalJson(), enabled = true)
 
     /** Non-blocking for UI callers. Coalesces superseded whole-library snapshots. */
     fun save(state: LibraryState, onError: (Throwable) -> Unit = {}) {
