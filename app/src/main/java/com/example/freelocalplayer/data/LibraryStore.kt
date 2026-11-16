@@ -29,6 +29,7 @@ class LibraryStore(context: Context) {
         // persist overlapping generations of the library out of order.
         private val writer = LatestSnapshotWriter<WriteRequest>(
             write = { request ->
+                CanonicalLibraryStateGuard.requireValid(request.snapshot)
                 val json = encodeLibrary(request.snapshot)
                 if (!request.preferences.edit().putString("library", json).commit()) {
                     throw IOException("SharedPreferences.commit() вернул false")
@@ -92,70 +93,15 @@ class LibraryStore(context: Context) {
 
     private fun readCanonicalJson(): LibraryState {
         return try {
-            val root = JSONObject(preferences.getString("library", "{}") ?: "{}")
-            val media = root.optJSONArray("media")?.let { array ->
-                (0 until array.length()).mapNotNull { index ->
-                    val obj = array.optJSONObject(index) ?: return@mapNotNull null
-                    val id = obj.optString("id")
-                    val uri = obj.optString("uri")
-                    if (id.isEmpty() || uri.isEmpty()) return@mapNotNull null
-                    MediaEntry(
-                        id = id,
-                        uri = uri,
-                        title = obj.optString("title", "Без названия"),
-                        isVideo = obj.optBoolean("video", false),
-                        lyrics = obj.optString("lyrics", ""),
-                        sourceKey = obj.optString("sourceKey", ""),
-                        sizeBytes = obj.optLong("sizeBytes", -1L),
-                        durationMs = obj.optLong("durationMs", -1L)
-                    )
-                }
-            } ?: emptyList()
-            val playlists = root.optJSONArray("playlists")?.let { array ->
-                (0 until array.length()).mapNotNull { index ->
-                    val obj = array.optJSONObject(index) ?: return@mapNotNull null
-                    val id = obj.optString("id")
-                    if (id.isEmpty()) return@mapNotNull null
-                    val ids = obj.optJSONArray("mediaIds")?.let { idArray ->
-                        (0 until idArray.length()).mapNotNull { i -> idArray.optString(i).takeIf(String::isNotEmpty) }
-                    } ?: emptyList()
-                    UserPlaylist(id, obj.optString("name", "Мой список"), ids)
-                }
-            } ?: emptyList()
-            val retired = root.optJSONArray("retiredMedia")?.let { array ->
-                (0 until array.length()).mapNotNull { index ->
-                    val wrapper = array.optJSONObject(index) ?: return@mapNotNull null
-                    val obj = wrapper.optJSONObject("entry") ?: return@mapNotNull null
-                    val id = obj.optString("id")
-                    val uri = obj.optString("uri")
-                    if (id.isBlank() || uri.isBlank()) return@mapNotNull null
-                    val entry = MediaEntry(
-                        id = id, uri = uri,
-                        title = obj.optString("title", "Без названия"),
-                        isVideo = obj.optBoolean("video", false),
-                        lyrics = obj.optString("lyrics", ""),
-                        sourceKey = obj.optString("sourceKey", ""),
-                        sizeBytes = obj.optLong("sizeBytes", -1L),
-                        durationMs = obj.optLong("durationMs", -1L)
-                    )
-                    val places = wrapper.optJSONArray("playlistPlaces")?.let { refs ->
-                        (0 until refs.length()).mapNotNull placeLoop@{ i ->
-                            val place = refs.optJSONObject(i) ?: return@placeLoop null
-                            val playlistId = place.optString("playlistId")
-                            val slot = place.optInt("index", -1)
-                            if (playlistId.isBlank() || slot < 0) null else PlaylistPlace(playlistId, slot)
-                        }
-                    } ?: emptyList()
-                    RetiredMedia(entry, places)
-                }
-            } ?: emptyList()
-            LibraryState(media, playlists, retired)
+            CanonicalLibraryJsonDecoder.decode(
+                raw = preferences.getString("library", null),
+                keyExists = preferences.contains("library")
+            )
         } catch (error: Exception) {
-            // Returning an empty library would silently destroy user data at next save.
-            throw IOException("Повреждён JSON медиатеки; запись отключена до восстановления", error)
+            // Never replace a partial snapshot with an empty writable library.
+            throw IOException("РџРѕРІСЂРµР¶РґС‘РЅ JSON РјРµРґРёР°С‚РµРєРё; Р·Р°РїРёСЃСЊ РѕС‚РєР»СЋС‡РµРЅР° РґРѕ РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёСЏ", error)
         }
     }
-
     /**
      * Runs only on a background thread, after awaitPendingWrites().
      * Default remains JSON until a separately verified rollout enables the
