@@ -6,6 +6,7 @@ import org.json.JSONObject
 import java.io.IOException
 import com.example.freelocalplayer.data.room.ShadowRoomMirror
 import com.example.freelocalplayer.data.room.VerifiedRoomReadSelector
+import com.example.freelocalplayer.data.room.RoomReadRolloutWindow
 import android.util.Log
 
 /** Persists user-added URI references and lyrics only. Media bytes never leave the device. */
@@ -163,11 +164,26 @@ class LibraryStore(context: Context) {
      */
     fun load(): LibraryState {
         val canonical = readCanonicalJson()
-        val enabled = try {
-            preferences.getBoolean("room_verified_read_0c3b", false)
+        // A verified read may be enabled ONLY by a time-limited QA lease.
+        // The timeout is evaluated before any SQLite access, including after a
+        // process death or a disconnected ADB session.
+        val requested = try {
+            preferences.getBoolean(RoomReadRolloutWindow.ENABLED_KEY, false)
         } catch (_: ClassCastException) {
             false
         }
+        val leaseExpiry = try {
+            preferences.getLong(RoomReadRolloutWindow.EXPIRY_KEY, 0L)
+        } catch (_: ClassCastException) {
+            0L
+        }
+        val window = RoomReadRolloutWindow.evaluate(
+            requested, leaseExpiry, System.currentTimeMillis()
+        )
+        if (window == RoomReadRolloutWindow.Status.EXPIRED_OR_INVALID) {
+            disableTemporaryRoomRead("lease_expired_or_invalid")
+        }
+        val enabled = window == RoomReadRolloutWindow.Status.ACTIVE
         val decision = selectVerifiedRoom(canonical, enabled)
         when (decision.reason) {
             VerifiedRoomReadSelector.Reason.VERIFIED ->
@@ -179,12 +195,35 @@ class LibraryStore(context: Context) {
             VerifiedRoomReadSelector.Reason.ROOM_READ_FAILED ->
                 Log.w("FLP_ROOM_READ", "ROOM_READ_JSON_FALLBACK read_error")
         }
+        if (enabled && !decision.verifiedRoom) {
+            // Never keep a rejected rollout active across the next cold start.
+            // Even a failed flag commit is safe because the JSON gate will rerun.
+            disableTemporaryRoomRead("room_gate_" + decision.reason.name)
+        }
         // Preserve existing behavior: JSON repairs an outdated Room mirror only
         // AFTER the read decision was taken, never before verification.
         // The source passed to the writer is ALWAYS canonical JSON, not a
         // potentially stale or incomplete SQLite candidate.
         ShadowRoomMirror.tryMirror(appContext, canonical)
         return decision.state
+    }
+
+    private fun disableTemporaryRoomRead(reason: String) {
+        try {
+            val saved = preferences.edit()
+                .putBoolean(RoomReadRolloutWindow.ENABLED_KEY, false)
+                .remove(RoomReadRolloutWindow.EXPIRY_KEY)
+                .commit()
+            if (!saved) {
+                Log.e("FLP_ROOM_READ", "ROOM_READ_ROLLBACK_FLAG_COMMIT_FAILED reason=$reason")
+            } else {
+                Log.w("FLP_ROOM_READ", "ROOM_READ_ROLLBACK_TO_JSON reason=$reason")
+            }
+        } catch (error: Exception) {
+            // The canonical JSON has already been parsed successfully.
+            // A flag-write failure is never permission to use unverified Room.
+            Log.e("FLP_ROOM_READ", "ROOM_READ_ROLLBACK_FLAG_EXCEPTION reason=$reason", error)
+        }
     }
 
     private fun selectVerifiedRoom(canonical: LibraryState, enabled: Boolean) =
