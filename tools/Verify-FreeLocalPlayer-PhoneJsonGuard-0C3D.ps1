@@ -252,8 +252,27 @@ try {
     if ($candidates.Length -lt 1) { throw 'APKSIGNER_NOT_FOUND' }
     $apksigner = $candidates[0].FullName
     $installedApk = Join-Path $ReportDir 'previous-installed-base.apk'
-    $pulled = @(& $Adb -s $Serial pull $base $installedApk 2>&1)
-    if ($LASTEXITCODE -ne 0) { throw 'PULL_INSTALLED_APK_FAILED' }
+    # ADB prints successful pull progress to stderr.
+    # Start-Process prevents PowerShell 5.1 from treating it as an error.
+    $pullProcess = Start-Process `
+        -FilePath $Adb `
+        -ArgumentList @(
+            '-s',
+            $Serial,
+            'pull',
+            ('"' + $base + '"'),
+            ('"' + $installedApk + '"')
+        ) `
+        -NoNewWindow `
+        -Wait `
+        -PassThru
+
+    if ($pullProcess.ExitCode -ne 0) {
+        throw ('PULL_INSTALLED_APK_FAILED exit=' + $pullProcess.ExitCode)
+    }
+
+    MustFile $installedApk
+
     $installedCertificate = Signer $apksigner $installedApk
     $candidateCertificate = Signer $apksigner $Apk
     $testCertificate = Signer $apksigner $TestApk
