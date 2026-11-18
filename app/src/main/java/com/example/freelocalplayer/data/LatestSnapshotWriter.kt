@@ -23,12 +23,16 @@ internal class LatestSnapshotWriter<T : Any>(
         Thread(task, "FLP-LibraryWriter").apply { isDaemon = true }
     }
     private var pending: T? = null
+    // Receipts of superseded snapshots travel with the newest pending snapshot.
+    // A callback is never invoked merely because submit() accepted an item.
+    private val pendingReceipts = mutableListOf<(Result<Unit>) -> Unit>()
     private var running = false
     private var lastFailure: Throwable? = null
 
-    fun submit(snapshot: T) {
+    fun submit(snapshot: T, onPersisted: ((Result<Unit>) -> Unit)? = null) {
         synchronized(lock) {
             pending = snapshot
+            if (onPersisted != null) pendingReceipts.add(onPersisted)
             if (!running) {
                 running = true
                 try {
@@ -36,6 +40,7 @@ internal class LatestSnapshotWriter<T : Any>(
                 } catch (error: RuntimeException) {
                     running = false
                     pending = null
+                    pendingReceipts.clear()
                     throw error
                 }
             }
@@ -44,21 +49,29 @@ internal class LatestSnapshotWriter<T : Any>(
 
     private fun drain() {
         while (true) {
-            val next = synchronized(lock) {
+            val (next, receipts) = synchronized(lock) {
                 val value = pending
                 if (value == null) {
                     running = false
                     return
                 }
                 pending = null
-                value
+                val callbacks = pendingReceipts.toList()
+                pendingReceipts.clear()
+                value to callbacks
             }
-            try {
+            val outcome: Result<Unit> = try {
                 write(next)
                 synchronized(lock) { lastFailure = null }
+                Result.success(Unit)
             } catch (error: Throwable) {
                 synchronized(lock) { lastFailure = error }
                 try { onWriteFailure(next, error) } catch (_: Throwable) { /* preserve writer */ }
+                Result.failure(error)
+            }
+            // A failed or slow observer must not prevent subsequent disk writes.
+            receipts.forEach { callback ->
+                try { callback(outcome) } catch (_: Throwable) { /* preserve writer */ }
             }
         }
     }

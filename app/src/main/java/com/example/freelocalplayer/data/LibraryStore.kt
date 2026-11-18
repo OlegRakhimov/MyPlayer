@@ -189,6 +189,16 @@ class LibraryStore(context: Context) {
         writer.submit(WriteRequest(preferences, state, onError, appContext))
     }
 
+    /**
+     * Completion is delivered by the background writer after the canonical JSON
+     * commit, never when a snapshot merely enters its coalescing queue.
+     * Superseded snapshot receipts follow the newest persisted snapshot.
+     * The callback runs on the writer thread; callers must dispatch UI work.
+     */
+    fun saveConfirmed(state: LibraryState, onPersisted: (Result<Unit>) -> Unit) {
+        writer.submit(WriteRequest(preferences, state, {}, appContext), onPersisted)
+    }
+
     /** Call only from Dispatchers.IO before backup, import, or a new Activity load. */
     fun awaitPendingWrites() = writer.awaitIdle()
 

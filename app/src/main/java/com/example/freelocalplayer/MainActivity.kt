@@ -238,18 +238,35 @@ class MainActivity : ComponentActivity() {
                     selectedTextTrackId = id
                     addLyricsFile.launch(arrayOf("*/*"))
                 },
-                onSaveLyrics = { id, text -> changeLibrary { it.updateLyrics(id, text) } },
-                onPlay = ::play,
-                onNewPlaylist = { name -> changeLibrary { it.createPlaylist(name) } },
-                onDeletePlaylist = { id -> changeLibrary { it.deletePlaylist(id) } },
-                onAddToPlaylist = { playlist, media -> changeLibrary { it.addToPlaylist(playlist, media) } },
-                onAddManyToPlaylist = { playlist, mediaIds ->
-                    changeLibrary { it.addManyToPlaylist(playlist, mediaIds) }
+                onSaveLyrics = { id, text ->
+                    changeLibrary(savedMessage = "Текст сохранён") { it.updateLyrics(id, text) }
                 },
-                onRemoveFromPlaylist = { playlist, media -> changeLibrary { it.removeFromPlaylist(playlist, media) } },
-                onMoveTrack = { playlist, media, direction -> changeLibrary {
-                    it.moveInPlaylist(playlist, media, direction)
-                } },
+                onSaveLyricsConfirmed = ::saveLyricsWithReceipt,
+                onPlay = ::play,
+                onNewPlaylist = { name ->
+                    changeLibrary(savedMessage = "Плейлист сохранён") { it.createPlaylist(name) }
+                },
+                onDeletePlaylist = { id ->
+                    changeLibrary(savedMessage = "Плейлист сохранён") { it.deletePlaylist(id) }
+                },
+                onAddToPlaylist = { playlist, media ->
+                    changeLibrary(savedMessage = "Плейлист сохранён") { it.addToPlaylist(playlist, media) }
+                },
+                onAddManyToPlaylist = { playlist, mediaIds ->
+                    changeLibrary(savedMessage = "Плейлист сохранён") {
+                        it.addManyToPlaylist(playlist, mediaIds)
+                    }
+                },
+                onRemoveFromPlaylist = { playlist, media ->
+                    changeLibrary(savedMessage = "Плейлист сохранён") {
+                        it.removeFromPlaylist(playlist, media)
+                    }
+                },
+                onMoveTrack = { playlist, media, direction ->
+                    changeLibrary(savedMessage = "Плейлист сохранён") {
+                        it.moveInPlaylist(playlist, media, direction)
+                    }
+                },
                 onRemoveMedia = { id -> changeLibrary { it.removeMedia(id) } },
                 onSpeedChange = { speed ->
                     store.setSpeed(speed)
@@ -475,22 +492,55 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun persistLibrarySnapshot(next: LibraryState) {
-        // No JSON construction or SharedPreferences disk write on the UI thread.
-        store.save(next) { error ->
-            runOnUiThread {
-                if (!isFinishing && !isDestroyed) {
-                    toast("Ошибка сохранения медиатеки: ${error.message}. Сделай резервную копию после проверки.")
+    private fun persistLibrarySnapshot(next: LibraryState, onResult: ((Boolean) -> Unit)? = null) {
+        // UI success is acknowledged only after SharedPreferences.commit() succeeds.
+        // JSON serialization and all disk I/O remain on the dedicated writer thread.
+        try {
+            store.saveConfirmed(next) { outcome ->
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        if (outcome.isSuccess) {
+                            onResult?.invoke(true)
+                        } else {
+                            val error = outcome.exceptionOrNull()
+                            toast("Ошибка сохранения медиатеки: ${error?.message}. Правка не подтверждена.")
+                            onResult?.invoke(false)
+                        }
+                    }
                 }
             }
+        } catch (error: Exception) {
+            toast("Ошибка постановки записи в очередь: ${error.message}")
+            onResult?.invoke(false)
         }
     }
 
-    private fun changeLibrary(change: (LibraryState) -> LibraryState) {
+    private fun saveLyricsWithReceipt(id: String, text: String, onResult: (Boolean) -> Unit) {
+        if (library.media.none { it.id == id }) {
+            toast("Песня не найдена. Текст не сохранён")
+            onResult(false)
+            return
+        }
+        val next = library.updateLyrics(id, text)
+        library = next
+        // Even an unchanged retry is committed and acknowledged, rather than
+        // incorrectly treating an in-memory state as a durable disk write.
+        persistLibrarySnapshot(next) { persisted ->
+            if (persisted) toast("Текст сохранён")
+            onResult(persisted)
+        }
+    }
+
+    private fun changeLibrary(
+        savedMessage: String? = null,
+        change: (LibraryState) -> LibraryState
+    ) {
         val next = change(library)
         if (library != next) {
             library = next
-            persistLibrarySnapshot(next)
+            persistLibrarySnapshot(next) { persisted ->
+                if (persisted && savedMessage != null) toast(savedMessage)
+            }
         }
     }
 

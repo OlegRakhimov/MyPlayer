@@ -156,6 +156,7 @@ fun PlayerApp(
     onImportFolder: () -> Unit,
     onImportLyrics: (String) -> Unit,
     onSaveLyrics: (String, String) -> Unit,
+    onSaveLyricsConfirmed: (String, String, (Boolean) -> Unit) -> Unit,
     onPlay: (String, String) -> Unit,
     onNewPlaylist: (String) -> Unit,
     onDeletePlaylist: (String) -> Unit,
@@ -509,7 +510,7 @@ fun PlayerApp(
                     editRequestedForId = lyricsEditTargetId,
                     onEditRequestConsumed = { lyricsEditTargetId = null },
                     onImport = onImportLyrics,
-                    onSave = onSaveLyrics,
+                    onSave = onSaveLyricsConfirmed,
                     onSeek = { millis ->
                         if (controller != null && textEntry?.id == playback.mediaId) controller.seekTo(millis)
                         else if (textEntry != null) {
@@ -1293,12 +1294,14 @@ private fun LyricsPanel(
     editRequestedForId: String?,
     onEditRequestConsumed: () -> Unit,
     onImport: (String) -> Unit,
-    onSave: (String, String) -> Unit,
+    onSave: (String, String, (Boolean) -> Unit) -> Unit,
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var choosing by remember { mutableStateOf(false) }
     var editing by remember(entry?.id) { mutableStateOf(false) }
+    var saving by remember(entry?.id) { mutableStateOf(false) }
+    var saveError by remember(entry?.id) { mutableStateOf<String?>(null) }
     var draft by remember(entry?.id, entry?.lyrics) { mutableStateOf(entry?.lyrics.orEmpty()) }
     LaunchedEffect(editRequestedForId, entry?.id) {
         if (editRequestedForId != null && editRequestedForId == entry?.id) {
@@ -1378,9 +1381,21 @@ private fun LyricsPanel(
         FullscreenLyricsEditor(
             trackTitle = entry.title,
             text = draft,
-            onTextChange = { draft = it },
-            onSave = { onSave(entry.id, draft); editing = false },
-            onDismiss = { editing = false }
+            onTextChange = { draft = it; saveError = null },
+            saving = saving,
+            saveError = saveError,
+            onSave = {
+                if (!saving) {
+                    saving = true
+                    saveError = null
+                    onSave(entry.id, draft) { persisted ->
+                        saving = false
+                        if (persisted) editing = false
+                        else saveError = "Не удалось сохранить. Текст оставлен в редакторе — повтори попытку."
+                    }
+                }
+            },
+            onDismiss = { if (!saving) editing = false }
         )
     }
     if (choosing) {
@@ -1408,6 +1423,8 @@ private fun FullscreenLyricsEditor(
     trackTitle: String,
     text: String,
     onTextChange: (String) -> Unit,
+    saving: Boolean,
+    saveError: String?,
     onSave: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1433,11 +1450,14 @@ private fun FullscreenLyricsEditor(
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
-                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Закрыть без сохранения") }
+                    IconButton(onClick = onDismiss, enabled = !saving) {
+                        Icon(Icons.Default.Close, "Закрыть без сохранения")
+                    }
                 }
                 OutlinedTextField(
                     value = text,
                     onValueChange = onTextChange,
+                    readOnly = saving,
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     label = { Text("Текст TXT или LRC") },
                     placeholder = { Text("Вставь текст песни или строки LRC [00:12.50]") },
@@ -1446,9 +1466,17 @@ private fun FullscreenLyricsEditor(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 )
+                if (saveError != null) {
+                    Text(saveError, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium)
+                }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Отмена") }
-                    Button(onClick = onSave, modifier = Modifier.weight(1f)) { Text("Сохранить") }
+                    OutlinedButton(onClick = onDismiss, enabled = !saving,
+                        modifier = Modifier.weight(1f)) { Text("Отмена") }
+                    Button(onClick = onSave, enabled = !saving,
+                        modifier = Modifier.weight(1f)) {
+                        Text(if (saving) "Сохраняю…" else "Сохранить")
+                    }
                 }
             }
         }
