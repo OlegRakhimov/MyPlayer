@@ -31,8 +31,20 @@ class LibraryStore(context: Context) {
             write = { request ->
                 CanonicalLibraryStateGuard.requireValid(request.snapshot)
                 val json = encodeLibrary(request.snapshot)
+                // 0-C.4.2: persist a checksummed, app-private recovery copy before
+                // committing the canonical library. No UI-thread disk work.
+                val journal = LibraryPendingWriteJournal(request.context.filesDir)
+                journal.stage(request.preferences.getString("library", null), json)
                 if (!request.preferences.edit().putString("library", json).commit()) {
+                    // Keep the journal intact; the next cold start may recover it.
                     throw IOException("SharedPreferences.commit() вернул false")
+                }
+                // A failed cleanup is not a failed canonical commit. On next launch
+                // an identical target hash allows safe cleanup without replay.
+                try {
+                    journal.clear()
+                } catch (error: IOException) {
+                    Log.w("FLP_LIBRARY_JOURNAL", "JOURNAL_POST_COMMIT_CLEANUP_PENDING", error)
                 }
                 // Stage 0-C.2: Room is a non-authoritative replica; its failure MUST
                 // NOT turn a successful canonical JSON write into a reported failure.
@@ -109,7 +121,21 @@ class LibraryStore(context: Context) {
      * canonical JSON snapshot is always parsed first and remains recoverable.
      */
     fun load(): LibraryState {
-        val canonical = readCanonicalJson()
+        // Fail closed if the existing canonical file is malformed. Never let an
+        // unverified journal override it or silently replace a newer catalog.
+        val baseline = readCanonicalJson()
+        val recovery = LibraryPendingWriteJournal(appContext.filesDir).recover(
+            currentRaw = preferences.getString("library", null),
+            validate = { raw ->
+                CanonicalLibraryJsonDecoder.decode(raw, keyExists = true)
+                Unit
+            },
+            commit = { raw -> preferences.edit().putString("library", raw).commit() }
+        )
+        val canonical = if (recovery == LibraryPendingWriteJournal.Recovery.RESTORED) {
+            Log.w("FLP_LIBRARY_JOURNAL", "JOURNAL_RECOVERED_AFTER_INTERRUPTED_COMMIT")
+            readCanonicalJson()
+        } else baseline
         // A verified read may be enabled ONLY by a time-limited QA lease.
         // The timeout is evaluated before any SQLite access, including after a
         // process death or a disconnected ADB session.
