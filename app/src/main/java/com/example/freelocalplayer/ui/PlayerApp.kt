@@ -636,7 +636,7 @@ fun PlayerApp(
                 onCancelAnalysis = onCancelAnalyze,
                 onDeleteAudioAnalysis = onDeleteAutoChords,
                 onImportLyrics = onImportLyrics,
-                onSaveLyrics = onSaveLyrics,
+                onSaveLyricsConfirmed = onSaveLyricsConfirmed,
                 onOpenLyricsEditor = {
                     chosenTrackId = current.id
                     tab = 3

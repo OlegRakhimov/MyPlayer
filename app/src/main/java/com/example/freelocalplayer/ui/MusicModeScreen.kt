@@ -125,7 +125,7 @@ internal fun MusicModeScreen(
     onCancelAnalysis: () -> Unit,
     onDeleteAudioAnalysis: (String) -> Unit,
     onImportLyrics: (String) -> Unit,
-    onSaveLyrics: (String, String) -> Unit,
+    onSaveLyricsConfirmed: (String, String, (Boolean) -> Unit) -> Unit,
     onOpenLyricsEditor: () -> Unit,
     onOpenCover: () -> Unit,
     onDismiss: () -> Unit,
@@ -321,7 +321,9 @@ internal fun MusicModeScreen(
                                 onEditCurrentChord = { cue -> editCue = cue; chordNameDraft = cue.name },
                                 onImportLyrics = { onImportLyrics(entry.id) },
                                 onEditLyrics = onOpenLyricsEditor,
-                                onSaveTimedLyrics = { synchronized -> onSaveLyrics(entry.id, synchronized) },
+                                onSaveTimedLyrics = { synchronized, receipt ->
+                                    onSaveLyricsConfirmed(entry.id, synchronized, receipt)
+                                },
                                 modifier = Modifier.fillMaxSize()
                             )
                             }

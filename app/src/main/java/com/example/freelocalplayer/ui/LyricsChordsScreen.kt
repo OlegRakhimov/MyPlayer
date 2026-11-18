@@ -79,17 +79,22 @@ internal fun LyricsChordsScreen(
     onEditCurrentChord: (ChordCue) -> Unit,
     onImportLyrics: () -> Unit,
     onEditLyrics: () -> Unit,
-    onSaveTimedLyrics: (String) -> Unit,
+    onSaveTimedLyrics: (String, (Boolean) -> Unit) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val timed = remember(lyrics) { LrcParser.parse(lyrics) }
-    var isTimingTxt by remember(lyrics) { mutableStateOf(false) }
-    var autoFollow by remember(lyrics) { mutableStateOf(true) }
-    var editTimingMode by remember(lyrics) { mutableStateOf(false) }
-    var selectedTimingIndex by remember(lyrics) { mutableStateOf<Int?>(null) }
-    var selectedWordLineIndex by remember(lyrics) { mutableStateOf<Int?>(null) }
+    // The parent wraps this composable in key(entry.id). Keep in-flight edits alive
+    // when MainActivity optimistically updates entry.lyrics before the disk receipt.
+    var isTimingTxt by remember { mutableStateOf(false) }
+    var autoFollow by remember { mutableStateOf(true) }
+    var editTimingMode by remember { mutableStateOf(false) }
+    var selectedTimingIndex by remember { mutableStateOf<Int?>(null) }
+    var selectedWordLineIndex by remember { mutableStateOf<Int?>(null) }
+    var lineReceipt by remember { mutableStateOf<TimingSaveReceiptState?>(null) }
+    var wordReceipt by remember { mutableStateOf<TimingSaveReceiptState?>(null) }
+    var txtReceipt by remember { mutableStateOf<TimingSaveReceiptState?>(null) }
     val editableCues = remember(lyrics) { LrcTimingAdjuster.cues(lyrics) }
-    var lineMarks by remember(lyrics) { mutableStateOf<List<Long>>(emptyList()) }
+    var lineMarks by remember { mutableStateOf<List<Long>>(emptyList()) }
     val plainLines = remember(lyrics) { LyricLineSync.lines(lyrics) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
         // One action row only when there is text. The empty state has its own import button.
@@ -150,6 +155,7 @@ internal fun LyricsChordsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
                             if (editTimingMode && editableCues.size == timed.size) {
+                                lineReceipt = TimingSaveReceiptState(lyrics)
                                 selectedTimingIndex = index
                             } else {
                                 onSeek(item.lyric.timeMs)
@@ -174,6 +180,7 @@ internal fun LyricsChordsScreen(
                                     TextButton(
                                         onClick = {
                                             selectedTimingIndex = null
+                                            wordReceipt = TimingSaveReceiptState(lyrics)
                                             selectedWordLineIndex = index
                                         },
                                         enabled = canEditWords
@@ -210,7 +217,11 @@ internal fun LyricsChordsScreen(
         } else {
             // Open dedicated full-screen line timing so the player/chord controls
             // cannot crowd out the currently sung line and the MARK button.
-            Button(onClick = { isTimingTxt = true }, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = {
+                txtReceipt = TimingSaveReceiptState(lyrics)
+                lineMarks = emptyList()
+                isTimingTxt = true
+            }, modifier = Modifier.fillMaxWidth()) {
                 Text("Синхронизировать строки с музыкой")
             }
             LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -234,19 +245,22 @@ internal fun LyricsChordsScreen(
     // Every edit previews a new LRC string without overwriting the original.
     // Saving is only enabled when all time/word-order checks pass.
     val selectedIndex = selectedTimingIndex
-    if (selectedIndex != null && selectedIndex in editableCues.indices) {
-        val cue = editableCues[selectedIndex]
-        var candidateMs by remember(lyrics, selectedIndex) { mutableLongStateOf(cue.timeMs) }
-        val changedLyrics = remember(lyrics, selectedIndex, candidateMs, durationMs) {
-            LrcTimingAdjuster.retime(lyrics, selectedIndex, candidateMs, durationMs)
+    val lineBase = lineReceipt?.sourceLyrics ?: lyrics
+    val sourceCues = remember(lineBase) { LrcTimingAdjuster.cues(lineBase) }
+    if (selectedIndex != null && selectedIndex in sourceCues.indices) {
+        val cue = sourceCues[selectedIndex]
+        val lineSaving = lineReceipt?.saving == true
+        var candidateMs by remember(lineBase, selectedIndex) { mutableLongStateOf(cue.timeMs) }
+        val changedLyrics = remember(lineBase, selectedIndex, candidateMs, durationMs) {
+            LrcTimingAdjuster.retime(lineBase, selectedIndex, candidateMs, durationMs)
         }
-        val validOffsets = remember(lyrics, selectedIndex, candidateMs, durationMs) {
+        val validOffsets = remember(lineBase, selectedIndex, candidateMs, durationMs) {
             listOf(-500L, -100L, 100L, 500L).associateWith { delta ->
-                LrcTimingAdjuster.retime(lyrics, selectedIndex, candidateMs + delta, durationMs) != null
+                LrcTimingAdjuster.retime(lineBase, selectedIndex, candidateMs + delta, durationMs) != null
             }
         }
         AlertDialog(
-            onDismissRequest = { selectedTimingIndex = null },
+            onDismissRequest = { if (!lineSaving) selectedTimingIndex = null },
             title = { Text("Время строки LRC") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -263,7 +277,7 @@ internal fun LyricsChordsScreen(
                         listOf(-500L, -100L, 100L, 500L).forEach { delta ->
                             val proposalMs = candidateMs + delta
                             OutlinedButton(
-                                enabled = validOffsets[delta] == true,
+                                enabled = !lineSaving && validOffsets[delta] == true,
                                 onClick = { candidateMs = proposalMs }
                             ) {
                                 Text(when (delta) {
@@ -278,8 +292,8 @@ internal fun LyricsChordsScreen(
                     val atPlayback = positionMs.coerceAtLeast(0L)
                     TextButton(
                         onClick = { candidateMs = atPlayback },
-                        enabled = LrcTimingAdjuster.retime(
-                            lyrics, selectedIndex, atPlayback, durationMs
+                        enabled = !lineSaving && LrcTimingAdjuster.retime(
+                            lineBase, selectedIndex, atPlayback, durationMs
                         ) != null
                     ) { Text("По текущей позиции песни") }
                     if (cue.hasWordTiming && cue.hasMultipleLineTags) {
@@ -292,6 +306,10 @@ internal fun LyricsChordsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    if (lineSaving) Text("Сохраняю время строки…")
+                    if (lineReceipt?.failed == true) Text(
+                        "Не удалось сохранить. Метка сохранена в редакторе — попробуй ещё раз.",
+                        color = MaterialTheme.colorScheme.error)
                     if (changedLyrics == null && !(cue.hasWordTiming && cue.hasMultipleLineTags)) {
                         Text("Время должно оставаться между соседними строками, " +
                             "не выходить за пределы песни и не делать метки слов отрицательными.",
@@ -303,40 +321,50 @@ internal fun LyricsChordsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        if (changedLyrics != null && changedLyrics != lyrics) {
-                            onSaveTimedLyrics(changedLyrics)
-                            selectedTimingIndex = null
-                            editTimingMode = false
+                        if (!lineSaving && changedLyrics != null && changedLyrics != lineBase) {
+                            lineReceipt = (lineReceipt ?: TimingSaveReceiptState(lineBase)).start()
+                            onSaveTimedLyrics(changedLyrics) { confirmed ->
+                                lineReceipt = lineReceipt?.complete(confirmed)
+                                if (confirmed) {
+                                    selectedTimingIndex = null
+                                    lineReceipt = null
+                                    editTimingMode = false
+                                }
+                            }
                         }
                     },
-                    enabled = changedLyrics != null && changedLyrics != lyrics
-                ) { Text("Сохранить") }
+                    enabled = !lineSaving && changedLyrics != null && changedLyrics != lineBase
+                ) { Text(if (lineSaving) "Сохраняю…" else "Сохранить") }
             },
             dismissButton = {
-                TextButton(onClick = { selectedTimingIndex = null }) { Text("Отмена") }
+                TextButton(onClick = { selectedTimingIndex = null }, enabled = !lineSaving) {
+                    Text("Отмена")
+                }
             }
         )
     }
     // Word timing is edited independently; existing line timing remains unchanged.
     val editWordLine = selectedWordLineIndex
+    val wordBase = wordReceipt?.sourceLyrics ?: lyrics
     if (editWordLine != null) {
-        val lineWords = remember(lyrics, editWordLine) {
-            EnhancedLrcWordAdjuster.words(lyrics, editWordLine)
+        val wordSaving = wordReceipt?.saving == true
+        val lineWords = remember(wordBase, editWordLine) {
+            EnhancedLrcWordAdjuster.words(wordBase, editWordLine)
         }
         if (lineWords.isNotEmpty()) {
-            var selectedWordIndex by remember(lyrics, editWordLine) { mutableIntStateOf(0) }
+            var selectedWordIndex by remember(wordBase, editWordLine) { mutableIntStateOf(0) }
             val selectedWord = lineWords.getOrNull(selectedWordIndex)
             if (selectedWord != null) {
-                var wordCandidateMs by remember(lyrics, editWordLine, selectedWordIndex) {
+                var wordCandidateMs by remember(wordBase, editWordLine, selectedWordIndex) {
                     mutableLongStateOf(selectedWord.timeMs)
                 }
-                val updatedLyrics = remember(lyrics, editWordLine, selectedWordIndex,
+                val updatedLyrics = remember(wordBase, editWordLine, selectedWordIndex,
                     wordCandidateMs, durationMs) {
-                    EnhancedLrcWordAdjuster.retimeWord(lyrics, editWordLine, selectedWordIndex,
+                    EnhancedLrcWordAdjuster.retimeWord(wordBase, editWordLine, selectedWordIndex,
                         wordCandidateMs, durationMs)
                 }
                 AlertDialog(
-                    onDismissRequest = { selectedWordLineIndex = null },
+                    onDismissRequest = { if (!wordSaving) selectedWordLineIndex = null },
                     title = { Text("Время слова Enhanced LRC") },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -351,6 +379,7 @@ internal fun LyricsChordsScreen(
                                     FilterChip(
                                         selected = selectedWordIndex == index,
                                         onClick = { selectedWordIndex = index },
+                                        enabled = !wordSaving,
                                         label = { Text(word.text.take(26)) }
                                     )
                                 }
@@ -366,8 +395,8 @@ internal fun LyricsChordsScreen(
                                 listOf(-500L, -100L, 100L, 500L).forEach { delta ->
                                     val proposal = wordCandidateMs + delta
                                     OutlinedButton(
-                                        enabled = EnhancedLrcWordAdjuster.retimeWord(
-                                            lyrics, editWordLine, selectedWordIndex, proposal,
+                                        enabled = !wordSaving && EnhancedLrcWordAdjuster.retimeWord(
+                                            wordBase, editWordLine, selectedWordIndex, proposal,
                                             durationMs) != null,
                                         onClick = { wordCandidateMs = proposal }
                                     ) {
@@ -383,13 +412,17 @@ internal fun LyricsChordsScreen(
                             val playbackTarget = positionMs.coerceAtLeast(0L)
                             TextButton(
                                 onClick = { wordCandidateMs = playbackTarget },
-                                enabled = EnhancedLrcWordAdjuster.retimeWord(
-                                    lyrics, editWordLine, selectedWordIndex, playbackTarget,
+                                enabled = !wordSaving && EnhancedLrcWordAdjuster.retimeWord(
+                                    wordBase, editWordLine, selectedWordIndex, playbackTarget,
                                     durationMs) != null
                             ) { Text("По текущей позиции песни") }
                             Text("Другие слова и начало строки не изменяются.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (wordSaving) Text("Сохраняю время слова…")
+                            if (wordReceipt?.failed == true) Text(
+                                "Не удалось сохранить. Метка сохранена в редакторе — попробуй ещё раз.",
+                                color = MaterialTheme.colorScheme.error)
                             if (updatedLyrics == null) {
                                 Text("Время должно оставаться между соседними метками, " +
                                     "внутри строки и длительности песни.",
@@ -401,37 +434,54 @@ internal fun LyricsChordsScreen(
                     confirmButton = {
                         TextButton(
                             onClick = {
-                                if (updatedLyrics != null && updatedLyrics != lyrics) {
-                                    onSaveTimedLyrics(updatedLyrics)
-                                    selectedWordLineIndex = null
-                                    editTimingMode = false
+                                if (!wordSaving && updatedLyrics != null && updatedLyrics != wordBase) {
+                                    wordReceipt = (wordReceipt ?: TimingSaveReceiptState(wordBase)).start()
+                                    onSaveTimedLyrics(updatedLyrics) { confirmed ->
+                                        wordReceipt = wordReceipt?.complete(confirmed)
+                                        if (confirmed) {
+                                            selectedWordLineIndex = null
+                                            wordReceipt = null
+                                            editTimingMode = false
+                                        }
+                                    }
                                 }
                             },
-                            enabled = updatedLyrics != null && updatedLyrics != lyrics
-                        ) { Text("Сохранить") }
+                            enabled = !wordSaving && updatedLyrics != null && updatedLyrics != wordBase
+                        ) { Text(if (wordSaving) "Сохраняю…" else "Сохранить") }
                     },
                     dismissButton = {
-                        TextButton(onClick = { selectedWordLineIndex = null }) { Text("Отмена") }
+                        TextButton(onClick = { selectedWordLineIndex = null }, enabled = !wordSaving) {
+                            Text("Отмена")
+                        }
                     }
                 )
             }
         }
     }
-    if (isTimingTxt && timed.isEmpty() && plainLines.isNotEmpty()) {
+    // Do not hide the TXT timing dialog merely because the optimistic in-memory
+    // entry.lyrics has already changed to LRC while commit is still pending.
+    val txtBase = txtReceipt?.sourceLyrics ?: lyrics
+    val txtLines = remember(txtBase) { LyricLineSync.lines(txtBase) }
+    if (isTimingTxt && txtLines.isNotEmpty()) {
+        val txtSaving = txtReceipt?.saving == true
         Dialog(
-            onDismissRequest = { isTimingTxt = false },
+            onDismissRequest = { if (!txtSaving) isTimingTxt = false },
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 FullScreenLyricTiming(
-                    lines = plainLines,
+                    lines = txtLines,
                     marks = lineMarks,
+                    saving = txtSaving,
+                    saveFailed = txtReceipt?.failed == true,
                     positionMs = positionMs,
                     durationMs = durationMs,
                     isPlaying = isPlaying,
                     onTogglePlayback = onTogglePlayback,
                     onSeek = onSeek,
-                    onMark = { time -> lineMarks = LyricLineSync.mark(lineMarks, time, plainLines.size) },
+                    onMark = { time ->
+                        if (!txtSaving) lineMarks = LyricLineSync.mark(lineMarks, time, txtLines.size)
+                    },
                     onUndo = {
                         val last = lineMarks.lastOrNull()
                         lineMarks = LyricLineSync.undo(lineMarks)
@@ -442,12 +492,19 @@ internal fun LyricsChordsScreen(
                     },
                     onRestart = { lineMarks = emptyList() },
                     onSave = {
-                        if (LyricLineSync.ready(plainLines, lineMarks)) {
-                            onSaveTimedLyrics(LyricLineSync.toLrc(plainLines, lineMarks))
-                            isTimingTxt = false
+                        if (!txtSaving && LyricLineSync.ready(txtLines, lineMarks)) {
+                            txtReceipt = (txtReceipt ?: TimingSaveReceiptState(txtBase)).start()
+                            onSaveTimedLyrics(LyricLineSync.toLrc(txtLines, lineMarks)) { confirmed ->
+                                txtReceipt = txtReceipt?.complete(confirmed)
+                                if (confirmed) {
+                                    isTimingTxt = false
+                                    txtReceipt = null
+                                    lineMarks = emptyList()
+                                }
+                            }
                         }
                     },
-                    onClose = { isTimingTxt = false }
+                    onClose = { if (!txtSaving) isTimingTxt = false }
                 )
             }
         }
@@ -459,6 +516,8 @@ internal fun LyricsChordsScreen(
 private fun FullScreenLyricTiming(
     lines: List<String>,
     marks: List<Long>,
+    saving: Boolean,
+    saveFailed: Boolean,
     positionMs: Long,
     durationMs: Long,
     isPlaying: Boolean,
@@ -512,7 +571,7 @@ private fun FullScreenLyricTiming(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            IconButton(onClick = onClose) {
+            IconButton(onClick = onClose, enabled = !saving) {
                 Icon(Icons.Default.Close, contentDescription = "Закрыть синхронизацию")
             }
         }
@@ -538,7 +597,7 @@ private fun FullScreenLyricTiming(
                 onValueChangeFinished = {
                     jumpTo((seekFraction * safeDurationMs).toLong())
                 },
-                enabled = durationMs > 0L,
+                enabled = durationMs > 0L && !saving,
                 modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
             )
             Text(LyricLineSync.formatTime(durationMs.coerceAtLeast(0L))
@@ -588,13 +647,13 @@ private fun FullScreenLyricTiming(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
                 Text("Сдвиг метки:", style = MaterialTheme.typography.labelSmall)
-                OutlinedButton(onClick = { onAdjust(-100L) }) { Text("−0,1 с") }
-                OutlinedButton(onClick = { onAdjust(100L) }) { Text("+0,1 с") }
+                OutlinedButton(onClick = { onAdjust(-100L) }, enabled = !saving) { Text("−0,1 с") }
+                OutlinedButton(onClick = { onAdjust(100L) }, enabled = !saving) { Text("+0,1 с") }
             }
         }
         Button(
             onClick = { onMark(markedPositionMs) },
-            enabled = canMark,
+            enabled = canMark && !saving,
             modifier = Modifier.fillMaxWidth().height(66.dp)
         ) {
             Text(if (next == lines.size) "Все строки отмечены" else "ОТМЕТИТЬ НАЧАЛО СТРОКИ",
@@ -628,18 +687,21 @@ private fun FullScreenLyricTiming(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            OutlinedButton(onClick = onUndo, enabled = marks.isNotEmpty()) {
+            OutlinedButton(onClick = onUndo, enabled = !saving && marks.isNotEmpty()) {
                 Text("Отменить последнюю")
             }
-            TextButton(onClick = onRestart, enabled = marks.isNotEmpty()) {
+            TextButton(onClick = onRestart, enabled = !saving && marks.isNotEmpty()) {
                 Text("Сначала")
             }
         }
+        if (saveFailed) Text(
+            "Не удалось сохранить LRC. Все отметки сохранены в редакторе — попробуй ещё раз.",
+            color = MaterialTheme.colorScheme.error)
         Button(
             onClick = onSave,
-            enabled = LyricLineSync.ready(lines, marks),
+            enabled = !saving && LyricLineSync.ready(lines, marks),
             modifier = Modifier.fillMaxWidth()
-        ) { Text("СОХРАНИТЬ СИНХРОННЫЙ LRC") }
+        ) { Text(if (saving) "Сохраняю…" else "СОХРАНИТЬ СИНХРОННЫЙ LRC") }
     }
 }
 
