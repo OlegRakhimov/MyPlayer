@@ -140,6 +140,13 @@ class ConfirmedRetiredMediaRebindTest {
         refuse(s, ConfirmedRetiredMediaRebind.Refusal.EVIDENCE_UNAVAILABLE)
     }
 
+    @Test fun refusesForgedSourceKeyThatDisagreesWithMediaStoreUri() {
+        val s = state().copy(media = state().media.map {
+            if (it.id == "new") it.copy(sourceKey = "mediastore:external:audio:123456") else it
+        })
+        refuse(s, ConfirmedRetiredMediaRebind.Refusal.EVIDENCE_UNAVAILABLE)
+    }
+
     @Test fun refusesUriClaimedByAnotherRetiredUuid() {
         val s = state().copy(retiredMedia = state().retiredMedia +
             RetiredMedia(fresh().copy(id = "other")))
