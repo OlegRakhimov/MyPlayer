@@ -423,7 +423,7 @@ class MainActivity : ComponentActivity() {
         }
         // A running Media3 queue can still reference the candidate UUID.
         // No active playback/queue may be invalidated by an identity change.
-        if (controller?.mediaItemCount ?: 0 > 0) {
+        if ((controller?.mediaItemCount ?: 0) > 0) {
             val player = controller
             val present = player != null && (0 until player.mediaItemCount).any { index ->
                 player.getMediaItemAt(index).mediaId == candidateUuid
