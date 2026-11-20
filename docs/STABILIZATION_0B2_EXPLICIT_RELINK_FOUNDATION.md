@@ -21,6 +21,19 @@
 
 Локально выполнена компиляция и запуск 15/15 тестов с установленным `kotlinc 1.9.0` и **тестовыми заглушками** минимальных типов и JUnit. Это НЕ подтверждает Gradle, APK, Android QA или функциональность в UI. Для приёмки необходим запуск в настоящем проекте `:app:testDebugUnitTest` и `:app:assembleDebug`.
 
+## Фактическая проверка Windows Gradle — 20 ноября 2026 года
+
+Пользователь выполнил `Verify-FreeLocalPlayer-0B2-StableUUID-PS51-v2.ps1` сначала в режиме `VerifyOnly`, затем `BuildAndTest`. Подтверждён консольный журнал:
+
+- `GIT_FAST_FORWARD=PASS`, `GITHUB_0B2_COMMIT_PRESENT=PASS`, `SOURCE_AND_TEST_BLOB_SHA=PASS`, `RESULT=PASS FREELOCALPLAYER_0B2_PREFLIGHT`;
+- `AUTOSYNC_LOCK=PASS`, `GIT_TRACKED_WORKTREE_CLEAN=PASS`, незарегистрированный `tools/Verify-FreeLocalPlayer-RealBackup.ps1` оставлен без изменений (`GIT_UNTRACKED_PRESERVED`);
+- `BUILD SUCCESSFUL in 37s` (43 Gradle задачи: 10 executed, 33 up-to-date), `GRADLE_UNIT_TEST_AND_DEBUG_COMPILE=PASS`;
+- `RELINK_JVM_TESTS=PASS tests=15`;
+- `MAIN_APP_APK_INSTALL=NO`, `PHONE_DATA_MODIFIED=NO`, `ROOM_PRIMARY_STORAGE=UNCHANGED`;
+- `RESULT=SUCCESS FREELOCALPLAYER_0B2_CODE_AND_JVM_QA` и `RESULT=SUCCESS FREELOCALPLAYER_0B2_VERIFIED`.
+
+**Статус этапа:** основа операции и 15 JVM-тестов проверены в реальном Windows/Gradle-проекте; тестовый запуск не устанавливал APK и не изменял медиатеку на Motorola. Полноценная UI-схема поиска и явного подтверждения, проверка реального SAF URI и конфликты уже существующих UUID-артефактов **не реализованы**. Этап 0-B.2 **закрыт как foundation/JVM QA**, но не как пользовательская функция восстановления.
+
 ## Ограничения и следующий шаг
 
 - **Функция ещё не подключена к пользовательскому интерфейсу.** Пользовательский каталог и APK пока не изменяются на телефоне, кроме будущей обычной сборки. Не утверждать, что ручная переиндексация уже доступна в приложении.
