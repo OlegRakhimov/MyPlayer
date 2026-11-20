@@ -38,6 +38,27 @@
 - `MAIN_APP_APK_UNCHANGED=PASS`.
 - `ROOM_PRIMARY_STORAGE=DISABLED_JSON_CANONICAL`.
 
+## Фактическая Motorola QA — 20 ноября 2026 года, 20:34
+
+Результат подтверждён журналом запуска пользователя на **Motorola Edge 60 Pro**:
+
+- `GRADLE_BUILD_AND_UNIT_TESTS=PASS` (35 с, 70 задач: 5 выполнено, 65 актуальны)
+- `VERIFIED_PHYSICAL_MOTOROLA=PASS model=motorola edge 60 pro`, `EMULATOR_USED=NO`
+- `PLAYER_PROCESS_RUNNING=NO`, `APK_SIGNING_CERTIFICATES_MATCH=PASS`
+- `TEST_APK_ONLY_INSTALL=PASS`, `MAIN_APP_APK_INSTALL=NO`
+- `JOURNAL_FAILURE_MATRIX_ANDROID_TESTS=PASS tests=11`
+- `QA_TESTS_USE_ISOLATED_FILES_AND_PREFERENCES=YES`, `PRODUCTION_JOURNAL_ALGORITHM_UNCHANGED=YES`
+- `CANONICAL_XML_SHA256_AFTER=CCC8BB8D339DAFD8369CCCD3EABE0B96CD565AC80727C7BAE50F80E5F360E0C5`, `CANONICAL_XML_UNCHANGED=PASS`
+- `MAIN_APP_APK_UNCHANGED=PASS`, `ROOM_PRIMARY_STORAGE=DISABLED_JSON_CANONICAL`
+- `STAGED_ONLY_NEW_QA_FILES=PASS count=2`
+- `LOCAL_COMMIT=7fce3a33c847d5e8f28e1331b67cbba45d820305`
+- `GITHUB_PUSH=PASS REMOTE_HASH_VERIFIED=YES HEAD=7fce3a33c847d5e8f28e1331b67cbba45d820305`
+- `RESULT=SUCCESS MOTOROLA_0C54_FAILURE_MATRIX_QA_AND_PUBLISH`
+
+GitHub `main` проверен отдельно, включает ровно два добавленных файла: `LibraryJournalFailureMatrixDeviceTest.kt` и этот документ. Текущий SHA-256 канонического XML **отличается от значения 19 ноября**, но не изменился **в ходе этого запуска**. Причины изменений между двумя днями не устанавливались.
+
+**Статус 0-C.5.4: PASS по детерминированной матрице 11 отказов.** Не проверялись реальная потеря питания, убийство процесса при fsync и скорость GZIP. У 0-C.5.3 по-прежнему нет подтверждённых численных результатов `DEEP_STAGE_RESULT`.
+
 ## Ограничения
 
 Этот набор не измеряет ускорение, не подтверждает производительность GZIP и не доказывает восстановление после реального сбоя питания. Он проверяет, что текущие защитные свойства работают на физическом телефоне в детерминированных QA-сценариях. Данные 0-C.5.3 остаются необходимыми для выбора алгоритма следующего релиза.
