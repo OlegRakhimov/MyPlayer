@@ -47,7 +47,9 @@ internal object ConfirmedRetiredMediaRebind {
         // An ordinary MediaStore scan should supply a volume-qualified source
         // key. SAF-only entries without verified metadata are not supported.
         val strong = MediaIdentity.strongKey(fresh)
-        if (strong == null || !fresh.uri.startsWith("content://media/")) {
+        val fromUri = MediaIdentity.strongKey(fresh.copy(sourceKey = ""))
+        if (strong == null || fromUri == null || strong != fromUri ||
+            !fresh.uri.startsWith("content://media/")) {
             return Refusal.EVIDENCE_UNAVAILABLE
         }
         if (state.media.any { it.id != candidateUuid && it.uri == fresh.uri } ||
