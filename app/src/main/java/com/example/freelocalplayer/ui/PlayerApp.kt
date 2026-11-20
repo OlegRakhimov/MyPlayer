@@ -170,7 +170,11 @@ fun PlayerApp(
     onRepeatChange: (Int) -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
-    backupBusy: Boolean
+    backupBusy: Boolean,
+    relinkBackupReady: Boolean,
+    relinkBusy: Boolean,
+    relinkSuccessCounter: Int,
+    onRelinkConfirmed: (String, String) -> Unit
 ) {
     // Appearance settings are local-only; media and playlist storage are untouched.
     val fusionContext = LocalContext.current
@@ -181,6 +185,10 @@ fun PlayerApp(
     var reducedMotion by remember { mutableStateOf(fusionPrefs.getBoolean("reduced_motion", false)) }
     var fusionSettingsOpen by remember { mutableStateOf(false) }
     var backupMenuOpen by remember { mutableStateOf(false) }
+    var relinkDialogOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(relinkSuccessCounter) {
+        if (relinkSuccessCounter > 0) relinkDialogOpen = false
+    }
     val fusionPalette = FusionPalette.fromStored(paletteKey)
     var playback by remember { mutableStateOf(PlaybackInfo()) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -556,9 +564,20 @@ fun PlayerApp(
                 onDismissRequest = { backupMenuOpen = false },
                 title = { Text("Резервная копия") },
                 text = {
-                    Text("ZIP сохраняет тексты, списки, избранное, настройки, MIDI и правки аккордов. " +
-                        "Сами музыкальные и видеофайлы не включаются. " +
-                        "При переносе в другое приложение может потребоваться заново разрешить доступ к файлам.")
+                    Column {
+                        Text("ZIP сохраняет тексты, списки, избранное, настройки, MIDI и правки аккордов. " +
+                            "Сами музыкальные и видеофайлы не включаются. " +
+                            "При переносе в другое приложение может потребоваться заново разрешить доступ к файлам.")
+                        if (library.retiredMedia.isNotEmpty()) {
+                            TextButton(onClick = {
+                                backupMenuOpen = false
+                                relinkDialogOpen = true
+                            }) {
+                                Text("Восстановить связь удалённого трека (" +
+                                    library.retiredMedia.size + ")")
+                            }
+                        }
+                    }
                 },
                 confirmButton = {
                     Row {
@@ -573,6 +592,16 @@ fun PlayerApp(
                 dismissButton = {
                     TextButton(onClick = { backupMenuOpen = false }) { Text("Закрыть") }
                 }
+            )
+        }
+        if (relinkDialogOpen) {
+            RetiredMediaRelinkDialog(
+                library = library,
+                backupVerifiedForCurrentSnapshot = relinkBackupReady,
+                busy = relinkBusy || backupBusy,
+                onExportBackup = onExportBackup,
+                onConfirmed = onRelinkConfirmed,
+                onDismiss = { relinkDialogOpen = false }
             )
         }
         if (fusionSettingsOpen) {
