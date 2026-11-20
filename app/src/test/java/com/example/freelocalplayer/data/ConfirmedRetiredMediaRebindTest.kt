@@ -70,6 +70,17 @@ class ConfirmedRetiredMediaRebindTest {
         CanonicalLibraryStateGuard.requireValid(after)
     }
 
+    @Test fun restoresUuidAtTheNewScannedMediaPositionWithoutReorderingOthers() {
+        val baseline = state()
+        val front = baseline.copy(media = listOf(
+            baseline.media.single { it.id == "new" },
+            baseline.media.single { it.id == "a" },
+            baseline.media.single { it.id == "b" }
+        ))
+        val result = ConfirmedRetiredMediaRebind.confirmed(front, "old", "new", true)
+        assertEquals(listOf("old", "a", "b"), result.media.map { it.id })
+    }
+
     @Test fun requiresExplicitConfirmation() {
         try {
             ConfirmedRetiredMediaRebind.confirmed(state(), "old", "new", false)
