@@ -568,14 +568,19 @@ fun PlayerApp(
                         Text("ZIP сохраняет тексты, списки, избранное, настройки, MIDI и правки аккордов. " +
                             "Сами музыкальные и видеофайлы не включаются. " +
                             "При переносе в другое приложение может потребоваться заново разрешить доступ к файлам.")
-                        if (library.retiredMedia.isNotEmpty()) {
-                            TextButton(onClick = {
+                        TextButton(
+                            onClick = {
                                 backupMenuOpen = false
                                 relinkDialogOpen = true
-                            }) {
-                                Text("Восстановить связь удалённого трека (" +
-                                    library.retiredMedia.size + ")")
-                            }
+                            },
+                            enabled = library.retiredMedia.isNotEmpty()
+                        ) {
+                            Text("Восстановить связь удалённого трека (" +
+                                library.retiredMedia.size + ")")
+                        }
+                        if (library.retiredMedia.isEmpty()) {
+                            Text("В архиве медиатеки нет удалённых записей.",
+                                style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 },
