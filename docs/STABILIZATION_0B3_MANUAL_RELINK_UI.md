@@ -19,7 +19,16 @@
 
 Добавлены **18 JVM-тестов** `ConfirmedRetiredMediaRebindTest`, охватывающих успешное сохранение UUID/текста/плейлистов и неизменность исходного состояния, необходимость подтверждения, отсутствие tombstone/new candidate, несовместимые метаданные/тип, текст или плейлист у кандидата, отсутствие MediaStore URI, противоречивый sourceKey, коллизии URI/sourceKey и сохранение других архивных записей. 15 тестов 0-B.2 остаются в проекте.
 
-**Статус до запуска на Windows:** исходники опубликованы в GitHub `main`, но полноценные `:app:testDebugUnitTest`, `:app:assembleDebug` и Android UI QA ещё не подтверждены. Локальные заглушки Kotlin не заменяют Android Gradle.
+**Windows Gradle и JVM QA — PASS (журнал пользователя от 20 ноября 2026 года).** Проверочный скрипт `Verify-FreeLocalPlayer-0B3-Manual-Relink-PS51.ps1` завершился:
+
+- `BUILD SUCCESSFUL in 50s`, Gradle 43 задачи (12 executed, 31 up-to-date).
+- `GRADLE_UNIT_TEST_AND_DEBUG_COMPILE=PASS`.
+- `RELINK_JVM_TESTS=PASS suite=ConfirmedRetiredMediaRebindTest tests=18`.
+- `RELINK_JVM_TESTS=PASS suite=RetiredMediaRelinkTest tests=15`.
+- `MAIN_APP_APK_INSTALL=NO`, `PHONE_DATA_MODIFIED=NO`, `ROOM_PRIMARY_STORAGE=UNCHANGED`.
+- `RESULT=SUCCESS FREELOCALPLAYER_0B3_UI_AND_JVM_QA` и `RESULT=SUCCESS FREELOCALPLAYER_0B3_VERIFIED`.
+
+**Граница приёмки:** на реальном Windows-проекте подтверждены сборка и 33 JVM-теста; **Android UI QA и восстановление реальной записи на Motorola ещё не выполнялись**. Нельзя выдавать успешный Gradle за гарантию корректной работы нового экрана или сохранения приложения при параллельной фоновой записи. Не устанавливать основной APK и не менять текущую медиатеку для «проверки на живых данных».
 
 ## Ограничения и строгие ворота
 
