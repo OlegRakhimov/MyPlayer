@@ -23,7 +23,23 @@
 - `RetiredMediaRelinkTest`: 15 сценариев;
 - `RelinkBackupReceiptTest`: 8 новых сценариев.
 
-Итого **41 ожидаемый JVM-тест** в трёх целевых наборах; результат 0-B.3.1 нельзя считать PASS до настоящей Gradle-проверки Windows.
+Итого **41 JVM-тест в трёх целевых наборах: Windows Gradle PASS (20.11.2026, журнал пользователя).**
+
+### Фактическая проверка 0-B.3.1
+
+Пользователь выполнил `Verify-FreeLocalPlayer-0B31-BackupGate-PS51.ps1` в режиме `BuildAndTest`. Из предоставленного консольного журнала:
+
+- `BUILD SUCCESSFUL in 43s`, 43 задачи (10 executed, 33 up-to-date);
+- `GRADLE_UNIT_TEST_AND_DEBUG_COMPILE=PASS`;
+- `RELINK_JVM_TESTS=PASS suite=ConfirmedRetiredMediaRebindTest tests=18`;
+- `RELINK_JVM_TESTS=PASS suite=RetiredMediaRelinkTest tests=15`;
+- `RELINK_BACKUP_RECEIPT_JVM_TESTS=PASS tests=8`;
+- `MAIN_APP_APK_INSTALL=NO`, `PHONE_DATA_MODIFIED=NO`, `ROOM_PRIMARY_STORAGE=UNCHANGED`;
+- `RESULT=SUCCESS FREELOCALPLAYER_0B31_BACKUP_GATE_JVM_QA`;
+- `RESULT=SUCCESS FREELOCALPLAYER_0B31_VERIFIED`.
+
+**Подтверждено:** JVM и компиляция Android debug в Windows-проекте. **Не подтверждено:** Android-инструментальные тесты, Compose UI-взаимодействие, реальное сохранение восстановленного UUID или прохождение SAF ZIP экспорта на Motorola. Продакшн-данные телефона не использовались.
+
 
 ## Оставшиеся риски и запреты
 
