@@ -330,7 +330,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun exportBackup(uri: Uri) {
-        if (backupBusy) return
+        if (backupBusy || relinkBusy) return
         if (analyzingMediaId != null || scanning || deviceScanning) {
             toast("Дождись завершения анализа и сканирования перед экспортом")
             return
@@ -401,6 +401,13 @@ class MainActivity : ComponentActivity() {
      * Opt-in recovery: never writes before a verified SAF ZIP exists for this
      * exact in-memory library snapshot. No changes to candidate UUID assets.
      */
+    private fun candidateIsQueued(mediaId: String): Boolean {
+        val player = controller ?: return false
+        return (0 until player.mediaItemCount).any { index ->
+            player.getMediaItemAt(index).mediaId == mediaId
+        }
+    }
+
     private fun confirmManualRelink(oldUuid: String, candidateUuid: String) {
         if (relinkBusy || backupBusy || scanning || deviceScanning ||
             analyzingMediaId != null) {
@@ -423,15 +430,9 @@ class MainActivity : ComponentActivity() {
         }
         // A running Media3 queue can still reference the candidate UUID.
         // No active playback/queue may be invalidated by an identity change.
-        if ((controller?.mediaItemCount ?: 0) > 0) {
-            val player = controller
-            val present = player != null && (0 until player.mediaItemCount).any { index ->
-                player.getMediaItemAt(index).mediaId == candidateUuid
-            }
-            if (present) {
-                toast("Файл находится в очереди воспроизведения. Освободи очередь и повтори.")
-                return
-            }
+        if (candidateIsQueued(candidateUuid)) {
+            toast("Файл находится в очереди воспроизведения. Освободи очередь и повтори.")
+            return
         }
         val candidate = before.media.firstOrNull { it.id == candidateUuid } ?: return
         relinkBusy = true
@@ -447,8 +448,9 @@ class MainActivity : ComponentActivity() {
                 if (library !== before || relinkBackupSource !== before) {
                     throw IOException("Медиатека изменилась во время проверки; нужен новый ZIP")
                 }
-                if (candidateUuid in recentIds || candidateUuid in favoriteIds) {
-                    throw IOException("У кандидата появились пользовательские привязки")
+                if (candidateUuid in recentIds || candidateUuid in favoriteIds ||
+                    candidateIsQueued(candidateUuid)) {
+                    throw IOException("У кандидата появились пользовательские привязки или очередь")
                 }
                 val updated = ConfirmedRetiredMediaRebind.confirmed(
                     before, oldUuid, candidateUuid, userConfirmed = true)
@@ -579,6 +581,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun toggleFavorite(mediaId: String) {
+        if (relinkBusy) return
         favoriteIds = if (mediaId in favoriteIds) favoriteIds - mediaId else favoriteIds + mediaId
         libraryPreferences.edit().putStringSet("favorite_ids", favoriteIds.toSet()).apply()
     }
@@ -589,7 +592,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun scanAfterResumeIfReady() {
-        if (!playerReady || backupBusy) return
+        if (!playerReady || backupBusy || relinkBusy) return
         if (!initialScanHandled) {
             initialScanHandled = true
             if (DeviceMediaScanner.canReadAny(this)) {
@@ -615,7 +618,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun scanPhone(force: Boolean) {
-        if (backupBusy || deviceScanning || !DeviceMediaScanner.canReadAny(this)) return
+        if (backupBusy || relinkBusy || deviceScanning || !DeviceMediaScanner.canReadAny(this)) return
         if (!force && SystemClock.elapsedRealtime() - lastDeviceScanAt < 60_000L) return
         deviceScanning = true
         lastDeviceScanAt = SystemClock.elapsedRealtime()
@@ -660,6 +663,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun saveLyricsWithReceipt(id: String, text: String, onResult: (Boolean) -> Unit) {
+        if (relinkBusy) {
+            onResult(false)
+            return
+        }
         if (library.media.none { it.id == id }) {
             toast("Песня не найдена. Текст не сохранён")
             onResult(false)
@@ -679,6 +686,10 @@ class MainActivity : ComponentActivity() {
         savedMessage: String? = null,
         change: (LibraryState) -> LibraryState
     ) {
+        if (relinkBusy) {
+            toast("Идёт безопасное восстановление связи трека")
+            return
+        }
         val next = change(library)
         if (library != next) {
             library = next
@@ -690,6 +701,7 @@ class MainActivity : ComponentActivity() {
 
     /** Merge thousands of scanner results off-main; retry if the user edited state meanwhile. */
     private suspend fun mergeScannedMedia(found: List<MediaEntry>): Int {
+        if (relinkBusy) throw IOException("Восстановление связи выполняется. Повтори сканирование позже.")
         repeat(4) {
             val previous = library
             val next = withContext(Dispatchers.Default) { previous.addMedia(found) }
