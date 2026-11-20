@@ -31,6 +31,7 @@ import com.example.freelocalplayer.data.LibraryState
 import com.example.freelocalplayer.data.LibraryStore
 import com.example.freelocalplayer.data.MediaEntry
 import com.example.freelocalplayer.data.ConfirmedRetiredMediaRebind
+import com.example.freelocalplayer.data.RelinkBackupReceipt
 import com.example.freelocalplayer.media.DeviceMediaScanner
 import com.example.freelocalplayer.media.MediaFormatSupport
 import com.example.freelocalplayer.music.MusicDataRepository
@@ -54,10 +55,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var musicRepository: MusicDataRepository
     private val backupManager by lazy { AppDataBackup(this) }
     private var backupBusy by mutableStateOf(false)
-    // A ZIP export is an explicit prerequisite to any manual UUID replacement.
-    // Use snapshot identity, not a timestamp or a mutable checksum guess.
-    private var relinkBackupSource: LibraryState? = null
-    private var relinkBackupReady by mutableStateOf(false)
+    // A verified ZIP authorizes re-linking only while dependent data is unchanged.
+    private var relinkBackupReceipt by mutableStateOf<RelinkBackupReceipt?>(null)
+    private var sidecarWritesInFlight by mutableIntStateOf(0)
     private var relinkBusy by mutableStateOf(false)
     private var relinkSuccessCounter by mutableIntStateOf(0)
     private var musicRevision by mutableStateOf(0)
@@ -70,6 +70,11 @@ class MainActivity : ComponentActivity() {
     private var launcherDestination by mutableStateOf("")
     private var launcherRequestId by mutableIntStateOf(0)
     private var pendingResumeShortcut = false
+
+    private fun currentRelinkBackupIsValid(): Boolean =
+        relinkBackupReceipt?.matches(
+            library, musicRevision, recentIds, favoriteIds, sidecarWritesInFlight
+        ) == true
 
     private companion object {
         const val SHORTCUT_RESUME = "com.example.freelocalplayer.RESUME"
@@ -192,9 +197,20 @@ class MainActivity : ComponentActivity() {
                 onAnalyzeChords = ::analyzeChords,
                 onCancelAnalyze = { audioAnalysisJob?.cancel() },
                 onDeleteAutoChords = { mediaId ->
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        musicRepository.deleteAudioEstimate(mediaId)
-                        withContext(Dispatchers.Main) { musicRevision++ }
+                    if (!relinkBusy) {
+                        sidecarWritesInFlight++
+                        lifecycleScope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    musicRepository.deleteAudioEstimate(mediaId)
+                                }
+                                musicRevision++
+                            } catch (error: Exception) {
+                                toast("Ошибка удаления анализа: " + error.message)
+                            } finally {
+                                sidecarWritesInFlight--
+                            }
+                        }
                     }
                 },
                 launcherDestination = launcherDestination,
@@ -212,33 +228,62 @@ class MainActivity : ComponentActivity() {
                 },
                 onSaveChordChart = { mediaId, chart -> saveChordChart(mediaId, chart) },
                 onSaveChordCorrection = { mediaId, edit ->
-                    lifecycleScope.launch {
-                        try {
-                            withContext(Dispatchers.IO) { musicRepository.saveChordCorrection(mediaId, edit) }
-                            musicRevision++
-                            toast("Исправление аккорда сохранено")
-                        } catch (error: Exception) { toast("Ошибка сохранения: ${error.message}") }
+                    if (!relinkBusy) {
+                        sidecarWritesInFlight++
+                        lifecycleScope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    musicRepository.saveChordCorrection(mediaId, edit)
+                                }
+                                musicRevision++
+                                toast("Исправление аккорда сохранено")
+                            } catch (error: Exception) {
+                                toast("Ошибка сохранения: " + error.message)
+                            } finally {
+                                sidecarWritesInFlight--
+                            }
+                        }
                     }
                 },
                 onRemoveChordCorrection = { mediaId, source, timeMs ->
-                    lifecycleScope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                musicRepository.removeChordCorrection(mediaId, source, timeMs)
+                    if (!relinkBusy) {
+                        sidecarWritesInFlight++
+                        lifecycleScope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    musicRepository.removeChordCorrection(mediaId, source, timeMs)
+                                }
+                                musicRevision++
+                                toast("Исправление отменено")
+                            } catch (error: Exception) {
+                                toast("Ошибка удаления правки: " + error.message)
+                            } finally {
+                                sidecarWritesInFlight--
                             }
-                            musicRevision++
-                            toast("Исправление отменено")
-                        } catch (error: Exception) { toast("Ошибка удаления правки: ${error.message}") }
+                        }
                     }
                 },
                 onMusicOffsetChange = { mediaId, value ->
-                    musicRepository.saveOffset(mediaId, value)
-                    musicRevision++
+                    if (!relinkBusy) {
+                        musicRepository.saveOffset(mediaId, value)
+                        musicRevision++
+                    }
                 },
                 onDeleteMidiScore = { mediaId ->
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        musicRepository.deleteScore(mediaId)
-                        withContext(Dispatchers.Main) { musicRevision++ }
+                    if (!relinkBusy) {
+                        sidecarWritesInFlight++
+                        lifecycleScope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    musicRepository.deleteScore(mediaId)
+                                }
+                                musicRevision++
+                            } catch (error: Exception) {
+                                toast("Ошибка удаления MIDI: " + error.message)
+                            } finally {
+                                sidecarWritesInFlight--
+                            }
+                        }
                     }
                 },
                 onImportFiles = { addFiles.launch(arrayOf("*/*")) },
@@ -290,15 +335,15 @@ class MainActivity : ComponentActivity() {
                     controller?.repeatMode = mode
                 },
                 onExportBackup = {
-                    if (!backupBusy) createBackupPicker.launch(
+                    if (!backupBusy && !relinkBusy) createBackupPicker.launch(
                         "FreeLocalPlayer-backup-${System.currentTimeMillis()}.zip"
                     )
                 },
                 onImportBackup = {
-                    if (!backupBusy) importBackupPicker.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                    if (!backupBusy && !relinkBusy) importBackupPicker.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
                 },
                 backupBusy = backupBusy,
-                relinkBackupReady = relinkBackupReady && relinkBackupSource === library,
+                relinkBackupReady = currentRelinkBackupIsValid(),
                 relinkBusy = relinkBusy,
                 relinkSuccessCounter = relinkSuccessCounter,
                 onRelinkConfirmed = ::confirmManualRelink
