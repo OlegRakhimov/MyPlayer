@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.OpenableColumns
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -29,6 +30,7 @@ import com.example.freelocalplayer.backup.AppDataBackup
 import com.example.freelocalplayer.data.LibraryState
 import com.example.freelocalplayer.data.LibraryStore
 import com.example.freelocalplayer.data.MediaEntry
+import com.example.freelocalplayer.data.ConfirmedRetiredMediaRebind
 import com.example.freelocalplayer.media.DeviceMediaScanner
 import com.example.freelocalplayer.media.MediaFormatSupport
 import com.example.freelocalplayer.music.MusicDataRepository
@@ -51,6 +53,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var musicRepository: MusicDataRepository
     private val backupManager by lazy { AppDataBackup(this) }
     private var backupBusy by mutableStateOf(false)
+    // A ZIP export is an explicit prerequisite to any manual UUID replacement.
+    // Use snapshot identity, not a timestamp or a mutable checksum guess.
+    private var relinkBackupSource: LibraryState? = null
+    private var relinkBackupReady by mutableStateOf(false)
+    private var relinkBusy by mutableStateOf(false)
+    private var relinkSuccessCounter by mutableIntStateOf(0)
     private var musicRevision by mutableStateOf(0)
     private var analyzingMediaId by mutableStateOf<String?>(null)
     private var audioAnalysisPercent by mutableIntStateOf(0)
@@ -288,7 +296,11 @@ class MainActivity : ComponentActivity() {
                 onImportBackup = {
                     if (!backupBusy) importBackupPicker.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
                 },
-                backupBusy = backupBusy
+                backupBusy = backupBusy,
+                relinkBackupReady = relinkBackupReady && relinkBackupSource === library,
+                relinkBusy = relinkBusy,
+                relinkSuccessCounter = relinkSuccessCounter,
+                onRelinkConfirmed = ::confirmManualRelink
             )
         }
                 playerReady = true
@@ -324,16 +336,148 @@ class MainActivity : ComponentActivity() {
             return
         }
         backupBusy = true
+        val snapshotAtExport = library
+        relinkBackupReady = false
+        relinkBackupSource = null
         lifecycleScope.launch {
             try {
                 val summary = withContext(Dispatchers.IO) {
                     store.awaitPendingWrites()
                     backupManager.exportTo(uri)
                 }
+                if (library === snapshotAtExport) {
+                    relinkBackupSource = snapshotAtExport
+                    relinkBackupReady = true
+                }
                 toast("ZIP сохранён и проверен: ${summary.tracks} файлов медиатеки, ${summary.playlists} списков")
             } catch (error: Exception) {
                 toast("Экспорт не подтверждён: ${error.message}")
             } finally { backupBusy = false }
+        }
+    }
+
+    /**
+     * Verify the currently indexed candidate, not merely stale metadata from
+     * the time the list was built. A failed query or unreadable URI fails closed.
+     * Called from Dispatchers.IO.
+     */
+    private fun verifyCurrentRelinkMedia(candidate: MediaEntry) {
+        val uri = Uri.parse(candidate.uri)
+        require(uri.scheme == "content" && uri.authority == "media") {
+            "Ручное восстановление поддерживает только MediaStore URI"
+        }
+        val durationColumn = if (candidate.isVideo) {
+            MediaStore.Video.Media.DURATION
+        } else {
+            MediaStore.Audio.Media.DURATION
+        }
+        val projection = arrayOf(
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.SIZE,
+            durationColumn
+        )
+        val valid = contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use false
+            val title = cursor.getString(
+                cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME))
+            val size = cursor.getLong(
+                cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE))
+            val duration = cursor.getLong(cursor.getColumnIndexOrThrow(durationColumn))
+            title == candidate.title &&
+                size > 0L && size == candidate.sizeBytes &&
+                duration > 0L && duration == candidate.durationMs
+        } ?: false
+        if (!valid) {
+            throw IOException("Файл или метаданные изменились после сканирования. Обнови медиатеку.")
+        }
+        contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
+            if (descriptor.statSize > 0L && descriptor.statSize != candidate.sizeBytes) {
+                throw IOException("Размер открытого файла отличается от данных сканирования")
+            }
+        } ?: throw IOException("Нет доступа к выбранному медиафайлу")
+    }
+
+    /**
+     * Opt-in recovery: never writes before a verified SAF ZIP exists for this
+     * exact in-memory library snapshot. No changes to candidate UUID assets.
+     */
+    private fun confirmManualRelink(oldUuid: String, candidateUuid: String) {
+        if (relinkBusy || backupBusy || scanning || deviceScanning ||
+            analyzingMediaId != null) {
+            toast("Дождись окончания текущих операций перед восстановлением")
+            return
+        }
+        val before = library
+        if (!relinkBackupReady || relinkBackupSource !== before) {
+            toast("Сначала экспортируй проверенный ZIP текущей медиатеки")
+            return
+        }
+        val preview = ConfirmedRetiredMediaRebind.preview(before, oldUuid, candidateUuid)
+        if (preview != ConfirmedRetiredMediaRebind.Refusal.NONE) {
+            toast("Связь не подтверждена: " + preview.name)
+            return
+        }
+        if (candidateUuid in recentIds || candidateUuid in favoriteIds) {
+            toast("У нового UUID есть история или избранное; автоматическое слияние запрещено")
+            return
+        }
+        // A running Media3 queue can still reference the candidate UUID.
+        // No active playback/queue may be invalidated by an identity change.
+        if (controller?.mediaItemCount ?: 0 > 0) {
+            val player = controller
+            val present = player != null && (0 until player.mediaItemCount).any { index ->
+                player.getMediaItemAt(index).mediaId == candidateUuid
+            }
+            if (present) {
+                toast("Файл находится в очереди воспроизведения. Освободи очередь и повтори.")
+                return
+            }
+        }
+        val candidate = before.media.firstOrNull { it.id == candidateUuid } ?: return
+        relinkBusy = true
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    store.awaitPendingWrites()
+                    if (musicRepository.hasStoredDataForUuid(candidateUuid)) {
+                        throw IOException("У нового UUID есть MIDI, аккорды, исправления или смещение")
+                    }
+                    verifyCurrentRelinkMedia(candidate)
+                }
+                if (library !== before || relinkBackupSource !== before) {
+                    throw IOException("Медиатека изменилась во время проверки; нужен новый ZIP")
+                }
+                if (candidateUuid in recentIds || candidateUuid in favoriteIds) {
+                    throw IOException("У кандидата появились пользовательские привязки")
+                }
+                val updated = ConfirmedRetiredMediaRebind.confirmed(
+                    before, oldUuid, candidateUuid, userConfirmed = true)
+                // No optimistic UI success: only display relinked state after the
+                // canonical JSON writer acknowledges its synchronous commit.
+                store.saveConfirmed(updated) { outcome ->
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed) {
+                            if (outcome.isSuccess) {
+                                library = updated
+                                relinkBackupReady = false
+                                relinkBackupSource = null
+                                relinkSuccessCounter++
+                                toast("Старый UUID и пользовательские данные восстановлены")
+                            } else {
+                                toast("Связь не сохранена: " +
+                                    outcome.exceptionOrNull()?.message)
+                            }
+                        }
+                        relinkBusy = false
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                relinkBusy = false
+                throw cancelled
+            } catch (error: Exception) {
+                relinkBusy = false
+                toast("Восстановление остановлено без изменения библиотеки: " + error.message)
+            }
         }
     }
 
