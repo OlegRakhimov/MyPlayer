@@ -975,32 +975,50 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun importMidiScore(mediaId: String, uri: Uri) {
+        if (relinkBusy) return
+        sidecarWritesInFlight++
         lifecycleScope.launch {
             try {
                 val score = withContext(Dispatchers.IO) { musicRepository.importMidi(mediaId, uri) }
                 musicRevision++
                 toast("MIDI: ${score.parts.size} партий, ${score.noteCount} нот")
-            } catch (error: Exception) { toast("Ошибка MIDI: ${error.message}") }
+            } catch (error: Exception) {
+                toast("Ошибка MIDI: " + error.message)
+            } finally {
+                sidecarWritesInFlight--
+            }
         }
     }
 
     private fun importChordChart(mediaId: String, uri: Uri) {
+        if (relinkBusy) return
+        sidecarWritesInFlight++
         lifecycleScope.launch {
             try {
                 val count = withContext(Dispatchers.IO) { musicRepository.importChords(mediaId, uri) }
                 musicRevision++
                 toast("Добавлено аккордов: $count")
-            } catch (error: Exception) { toast("Ошибка аккордов: ${error.message}") }
+            } catch (error: Exception) {
+                toast("Ошибка аккордов: " + error.message)
+            } finally {
+                sidecarWritesInFlight--
+            }
         }
     }
 
     private fun saveChordChart(mediaId: String, text: String) {
+        if (relinkBusy) return
+        sidecarWritesInFlight++
         lifecycleScope.launch {
             try {
                 val count = withContext(Dispatchers.IO) { musicRepository.saveChords(mediaId, text) }
                 musicRevision++
                 toast("Сохранено аккордов: $count")
-            } catch (error: Exception) { toast("Не удалось сохранить: ${error.message}") }
+            } catch (error: Exception) {
+                toast("Не удалось сохранить: " + error.message)
+            } finally {
+                sidecarWritesInFlight--
+            }
         }
     }
 
