@@ -37,6 +37,7 @@ import com.example.freelocalplayer.music.MusicDataRepository
 import com.example.freelocalplayer.music.ChordCorrection
 import com.example.freelocalplayer.music.AudioFileChordDetector
 import com.example.freelocalplayer.playback.PlaybackService
+import com.example.freelocalplayer.playback.PlaybackResumeStore
 import com.example.freelocalplayer.ui.PlayerApp
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CancellationException
@@ -401,6 +402,9 @@ class MainActivity : ComponentActivity() {
      * Opt-in recovery: never writes before a verified SAF ZIP exists for this
      * exact in-memory library snapshot. No changes to candidate UUID assets.
      */
+    private fun candidateHasPlaybackCheckpoint(mediaId: String): Boolean =
+        PlaybackResumeStore.forApplication(applicationContext).load()?.mediaId == mediaId
+
     private fun candidateIsQueued(mediaId: String): Boolean {
         val player = controller ?: return false
         return (0 until player.mediaItemCount).any { index ->
@@ -424,7 +428,8 @@ class MainActivity : ComponentActivity() {
             toast("Связь не подтверждена: " + preview.name)
             return
         }
-        if (candidateUuid in recentIds || candidateUuid in favoriteIds) {
+        if (candidateUuid in recentIds || candidateUuid in favoriteIds ||
+            candidateHasPlaybackCheckpoint(candidateUuid)) {
             toast("У нового UUID есть история или избранное; автоматическое слияние запрещено")
             return
         }
@@ -449,6 +454,7 @@ class MainActivity : ComponentActivity() {
                     throw IOException("Медиатека изменилась во время проверки; нужен новый ZIP")
                 }
                 if (candidateUuid in recentIds || candidateUuid in favoriteIds ||
+                    candidateHasPlaybackCheckpoint(candidateUuid) ||
                     candidateIsQueued(candidateUuid)) {
                     throw IOException("У кандидата появились пользовательские привязки или очередь")
                 }
@@ -744,6 +750,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun play(entryId: String, source: String) {
+        if (relinkBusy) return
         val player = controller ?: run {
             toast("Плеер ещё подключается")
             return
