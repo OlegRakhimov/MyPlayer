@@ -100,7 +100,7 @@ internal object ConfirmedRetiredMediaRebind {
             }
         }
         return state.copy(
-            media = state.media.filterNot { it.id == candidateUuid } + restored,
+            media = state.media.map { if (it.id == candidateUuid) restored else it },
             retiredMedia = state.retiredMedia.filterNot { it.entry.id == oldUuid },
             playlists = playlists
         ).also(CanonicalLibraryStateGuard::requireValid)
