@@ -377,28 +377,34 @@ class MainActivity : ComponentActivity() {
 
     private fun exportBackup(uri: Uri) {
         if (backupBusy || relinkBusy) return
-        if (analyzingMediaId != null || scanning || deviceScanning) {
-            toast("Дождись завершения анализа и сканирования перед экспортом")
+        if (analyzingMediaId != null || scanning || deviceScanning ||
+            sidecarWritesInFlight != 0) {
+            toast("Заверши анализ, MIDI, аккорды и сканирование перед экспортом")
             return
         }
         backupBusy = true
-        val snapshotAtExport = library
-        relinkBackupReady = false
-        relinkBackupSource = null
+        relinkBackupReceipt = null
+        val receiptAtStart = RelinkBackupReceipt.capture(
+            library, musicRevision, recentIds, favoriteIds
+        )
         lifecycleScope.launch {
             try {
                 val summary = withContext(Dispatchers.IO) {
                     store.awaitPendingWrites()
                     backupManager.exportTo(uri)
                 }
-                if (library === snapshotAtExport) {
-                    relinkBackupSource = snapshotAtExport
-                    relinkBackupReady = true
+                if (receiptAtStart.matches(
+                        library, musicRevision, recentIds, favoriteIds,
+                        sidecarWritesInFlight
+                    )) {
+                    relinkBackupReceipt = receiptAtStart
                 }
                 toast("ZIP сохранён и проверен: ${summary.tracks} файлов медиатеки, ${summary.playlists} списков")
             } catch (error: Exception) {
                 toast("Экспорт не подтверждён: ${error.message}")
-            } finally { backupBusy = false }
+            } finally {
+                backupBusy = false
+            }
         }
     }
 
@@ -459,12 +465,12 @@ class MainActivity : ComponentActivity() {
 
     private fun confirmManualRelink(oldUuid: String, candidateUuid: String) {
         if (relinkBusy || backupBusy || scanning || deviceScanning ||
-            analyzingMediaId != null) {
+            analyzingMediaId != null || sidecarWritesInFlight != 0) {
             toast("Дождись окончания текущих операций перед восстановлением")
             return
         }
         val before = library
-        if (!relinkBackupReady || relinkBackupSource !== before) {
+        if (!currentRelinkBackupIsValid()) {
             toast("Сначала экспортируй проверенный ZIP текущей медиатеки")
             return
         }
@@ -495,7 +501,7 @@ class MainActivity : ComponentActivity() {
                     }
                     verifyCurrentRelinkMedia(candidate)
                 }
-                if (library !== before || relinkBackupSource !== before) {
+                if (library !== before || !currentRelinkBackupIsValid()) {
                     throw IOException("Медиатека изменилась во время проверки; нужен новый ZIP")
                 }
                 if (candidateUuid in recentIds || candidateUuid in favoriteIds ||
@@ -512,8 +518,7 @@ class MainActivity : ComponentActivity() {
                         if (!isFinishing && !isDestroyed) {
                             if (outcome.isSuccess) {
                                 library = updated
-                                relinkBackupReady = false
-                                relinkBackupSource = null
+                                relinkBackupReceipt = null
                                 relinkSuccessCounter++
                                 toast("Старый UUID и пользовательские данные восстановлены")
                             } else {
@@ -535,7 +540,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun inspectBackupForRestore(uri: Uri) {
-        if (backupBusy) return
+        if (backupBusy || relinkBusy) return
         backupBusy = true
         lifecycleScope.launch {
             var staged: java.io.File? = null
@@ -567,7 +572,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun restoreBackup(staged: java.io.File) {
-        if (backupBusy) { staged.delete(); return }
+        if (backupBusy || relinkBusy) { staged.delete(); return }
         if (analyzingMediaId != null || scanning || deviceScanning) {
             toast("Дождись завершения анализа и сканирования перед импортом")
             staged.delete()
@@ -932,6 +937,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun analyzeChords(entry: MediaEntry) {
+        if (relinkBusy) {
+            toast("Дождись завершения восстановления связи трека")
+            return
+        }
         if (analyzingMediaId != null) {
             toast("Подожди завершения предыдущего анализа или отмени его")
             return
