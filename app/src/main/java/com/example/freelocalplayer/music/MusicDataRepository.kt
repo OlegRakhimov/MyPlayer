@@ -20,6 +20,19 @@ class MusicDataRepository(private val context: Context) {
 
     private fun path(mediaId: String, suffix: String) = File(directory, safeId(mediaId) + suffix)
 
+    /**
+     * 0-B.3: candidate UUIDs must have no private MIDI, chord chart,
+     * audio estimate, manual edits, or saved offset before they may be retired.
+     * Read-only check; call from Dispatchers.IO, never delete these files.
+     */
+    fun hasStoredDataForUuid(mediaId: String): Boolean {
+        val hash = safeId(mediaId)
+        val dir = File(context.filesDir, "music_mode_v1")
+        val suffixes = listOf(".mid", ".chords", ".auto.chords", ".chord-edits")
+        return suffixes.any { suffix -> File(dir, hash + suffix).exists() } ||
+            preferences.contains(hash)
+    }
+
     fun loadScore(mediaId: String): MusicScore? {
         val file = path(mediaId, ".mid")
         return if (file.isFile) MidiScoreParser.parse(file.readBytes()) else null
