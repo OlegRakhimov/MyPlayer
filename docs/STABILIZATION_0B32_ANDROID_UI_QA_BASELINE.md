@@ -60,6 +60,20 @@ RESULT=FAILED BASELINE_CHANGED_SINCE_EXPORT_PREPARATION=local_library_v1.xml REP
 
 **Статус:** скрипт подготовлен и статически проверен; ещё **не запускался** на реальной Motorola. `BACKUP_CANONICAL_JSON_MATCH=PASS` и `RESULT=SUCCESS EXISTING_SAF_ZIP_MATCHES_CURRENT_PHONE_DATA` будут означать, что существующий ZIP отражает *текущее* состояние при проверке, а не что исходный baseline 11:11 был семантически идентичен нынешнему. Если ZIP расходится с телефоном, сначала расследовать расхождение и только затем решать вопрос нового экспорта.
 
+## 21 ноября 2026, 11:47 — архив на Motorola полностью проверен и соответствует текущему каталогу
+
+Пользователь запустил read-only `Diagnose-FreeLocalPlayer-0B32-Backup-Drift-PS51.ps1 -Mode Diagnose -DeviceBackupName FreeLocalPlayer-backup-1795256299520.zip`. **PASS:** физическая Motorola, остановленный плеер `1.3.12 (20)`, `SAF_ZIP_PULL=PASS`, `SAF_ZIP_MANIFEST_SHA256=PASS entries=10`, `BACKUP_CANONICAL_JSON_MATCH=PASS`, 5 `BACKUP_PHONE_PREFS_MATCH=PASS`, `BACKUP_PHONE_MUSIC_FILES_MATCH=PASS count=9`, `PHONE_PREFERENCES_UNCHANGED_DURING_DIAGNOSIS=PASS`, `MAIN_APP_APK_PATH_UNCHANGED=PASS`, `PHONE_APP_DATA_MODIFIED=NO`, `APK_INSTALLED=NO`, `RESULT=SUCCESS EXISTING_SAF_ZIP_MATCHES_CURRENT_PHONE_DATA`.
+
+- Телефон: `633` медиа, `3` плейлиста, `0` записей `retiredMedia`.
+- SHA-256 всего SAF ZIP: `FCE3747B369A68052572B4F43179E17D8B8BF2F34964525C416B5D25A3CC0858`.
+- `SAF_ZIP_CREATED_AT_UNIX_MS=1795256300986`; файл `/sdcard/Download/FreeLocalPlayer-backup-1795256299520.zip`.
+- Canonical XML на момент проверки: `49284D7B76742D2B2AC6E23F187FEAD3CAB55057F80E3173DBE7101871D9721A`, тогда как прежний baseline 11:11: `CCC8BB8D339DAFD8369CCCD3EABE0B96CD565AC80727C7BAE50F80E5F360E0C5`.
+- Прежняя baseline-запись сохранена и **не перезаписана**; причина изменения XML после открытия приложения пока не доказана.
+
+**Итог:** этап подтверждения **актуального архива** пройден. Не следует утверждать, что ZIP совпадает с прежним состоянием 11:11: это разные контрольные точки. Архив сохраняет текущее состояние пользователя; пользовательские медиафайлы сами по себе в ZIP не включены.
+
+**Следующая задача:** безопасная, без установки APK проверка сертификатов. `app/build.gradle.kts` фиксирует `applicationId=com.example.freelocalplayer`, `versionCode=20`, `versionName=1.3.12`, но не указывает `signingConfigs` для release. Нужно сравнить SHA-256 сертификата **установленного** `base.apk` и **собранного** `app-debug.apk` через `apksigner verify --print-certs` перед любыми действиями по установке. `retiredMedia=0` означает отсутствие реальных кандидатов для UI re-link, нельзя удалять живые пользовательские песни ради появления тестовой записи. На этом шаге нельзя ни обновлять, ни удалять приложение.
+
 ## Этап B: проверенный SAF ZIP
 
 **После** Baseline пользователь вручную запускает существующую в приложении функцию «Резервная копия → Экспорт ZIP» и сохраняет новый архив с именем `FreeLocalPlayer-0B32-Verified.zip` в стандартную папку `Download` Motorola.
