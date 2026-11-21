@@ -10,7 +10,7 @@
 
 ## Подготовлен Windows PowerShell 5.1 скрипт
 
-Файл `Upgrade-FreeLocalPlayer-0B36-Main-PS51.ps1`, SHA-256 `CD5245AED5D7DE4FD83A93714C295E1B173CB38FD150373C22F832652946CBBB`. Результаты только в `.patch-backups\main-upgrade-0b36-*`. **На Windows и Motorola ещё не запускался.**
+Файл `Upgrade-FreeLocalPlayer-0B36-Main-PS51.ps1`, SHA-256 `BE3FF29EEE44B9F6565028FF4C2A4658B35005E72A5403B3CA6EC6C46671D283`. Результаты только в `.patch-backups\main-upgrade-0b36-*`. **На Windows и Motorola ещё не запускался.**
 
 ### Режим Preflight (без установки)
 
