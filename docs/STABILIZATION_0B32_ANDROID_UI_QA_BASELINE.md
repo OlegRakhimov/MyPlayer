@@ -31,6 +31,21 @@ RESULT=FAILED
 4. Сверяет хеши до/после операции, проверяет сохранение исходного пути основного APK; записывает лог и локальную контрольную запись **только внутри** `.patch-backups`.
 5. НЕ выполняет `adb install`, `adb uninstall`, `pm clear`, `force-stop`, изменяющие Git-команды, изменения в файлах устройства, переход на Room-primary и удаление пользовательских медиа.
 
+## Фактический результат Baseline v2 — 21 ноября 2026 года, 11:11 (локальный журнал пользователя)
+
+`Verify-FreeLocalPlayer-0B32-PhoneBaseline-Backup-PS51-v2.ps1 -Mode Baseline` выполнился полностью на физической Motorola Edge 60 Pro. Подтверждённые строки:
+
+- `SCRIPT_SHA256=PASS`, `POWERSHELL_SYNTAX=PASS`, `ADB_RESOLVED=PASS path=C:\\Users\\Oleg\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe`;
+- `VERIFIED_PHYSICAL_MOTOROLA=PASS model=motorola edge 60 pro`, `EMULATOR_USED=NO`, `PLAYER_PROCESS_RUNNING=NO`;
+- `MAIN_APP_VERSION=PASS versionName=1.3.12 versionCode=20`, `MAIN_APP_PACKAGE_PATH=PASS`;
+- `CANONICAL_XML_SHA256_BEFORE=CCC8BB8D339DAFD8369CCCD3EABE0B96CD565AC80727C7BAE50F80E5F360E0C5`;
+- `CANONICAL_XML_SHA256_AFTER=CCC8BB8D339DAFD8369CCCD3EABE0B96CD565AC80727C7BAE50F80E5F360E0C5`;
+- `CANONICAL_XML_UNCHANGED=PASS`, `AUXILIARY_PREFERENCES_UNCHANGED=PASS`, `MAIN_APP_APK_PATH_UNCHANGED=PASS`;
+- `MAIN_APP_APK_INSTALL=NO`, `PHONE_DATA_MODIFIED_BY_SCRIPT=NO`, `ROOM_PRIMARY_STORAGE=NOT_MODIFIED`, `BASELINE_MARKER_SAVED=PASS`;
+- `RESULT=SUCCESS FREELOCALPLAYER_0B32_READ_ONLY_DEVICE_BASELINE`, `RESULT=SUCCESS FREELOCALPLAYER_0B32_BASELINE`.
+
+Папка результатов: `C:\\Users\\Oleg\\Documents\\AndroidProjects\\FreeLocalPlayer\\.patch-backups\\phone-baseline-0b32-20261121-111156288`. Baseline успешно создан; **свежий SAF ZIP ещё не экспортирован и этап `VerifyBackup` пока не выполнялся**. Следующий запуск: создать новый `FreeLocalPlayer-0B32-Verified.zip` через приложение и затем проверить командой `-Mode VerifyBackup`. При несовпадении хешей **не** форсировать прохождение — сначала установить причину изменения.
+
 ## Этап B: проверенный SAF ZIP
 
 **После** Baseline пользователь вручную запускает существующую в приложении функцию «Резервная копия → Экспорт ZIP» и сохраняет новый архив с именем `FreeLocalPlayer-0B32-Verified.zip` в стандартную папку `Download` Motorola.
