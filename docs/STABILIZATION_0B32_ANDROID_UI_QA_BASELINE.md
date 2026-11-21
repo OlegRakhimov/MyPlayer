@@ -6,6 +6,21 @@
 
 20 ноября 2026 года пользователь выполнил Windows Gradle 0-B.3.1: `BUILD SUCCESSFUL in 43s`, `GRADLE_UNIT_TEST_AND_DEBUG_COMPILE=PASS`, `ConfirmedRetiredMediaRebindTest=18/18`, `RetiredMediaRelinkTest=15/15`, `RelinkBackupReceiptTest=8/8`. Всего 41 целевой JVM-тест. `MAIN_APP_APK_INSTALL=NO`, `PHONE_DATA_MODIFIED=NO`, `ROOM_PRIMARY_STORAGE=UNCHANGED`.
 
+## 21 ноября 2026: устранена ошибка обнаружения adb.exe в PowerShell
+
+Первый запуск `Verify-FreeLocalPlayer-0B32-PhoneBaseline-Backup-PS51.ps1 -Mode Baseline` на Windows остановился после создания локальной папки журнала в `.patch-backups`:
+
+```text
+Get-Command : Имя "adb.exe" не распознано
+RESULT=FAILED
+```
+
+Причина — скрипт требовал `adb.exe` в `PATH` и запускал `& adb.exe` без поиска установленного Android SDK. По этому журналу **не было обращений ADB к телефону**, не было установки APK или изменения пользовательских данных.
+
+Подготовлен `Verify-FreeLocalPlayer-0B32-PhoneBaseline-Backup-PS51-v2.ps1`, SHA-256 `15C9A8EA61D474AF956897339242AD9138F183EE93AB2D7F6621183C2BD2CE82`. Новый `Resolve-AdbExecutable` последовательно ищет путь SDK из `local.properties`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, стандартные `LOCALAPPDATA\\Android\\Sdk\\platform-tools` и `PATH`. При нестандартной установке поддерживается `-AdbPath <полный путь к adb.exe>`. `Exec-Adb` использует только разрешённый абсолютный путь. Остальные проверки сохранены; запрет `adb install`/`uninstall`/`pm clear` остаётся.
+
+**Статус v2:** подготовлен, побайтово проверен SHA-256 и отличия от v1; полноценный запуск Windows/Motorola ещё не подтверждён. Не считать Baseline/VerifyBackup PASS до пользовательского журнала.
+
 ## Этап A: только чтение данных Motorola
 
 `Verify-FreeLocalPlayer-0B32-PhoneBaseline-Backup-PS51.ps1` работает на Windows PowerShell 5.1. В режиме `Baseline`:
