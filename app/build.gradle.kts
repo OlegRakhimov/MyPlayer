@@ -18,18 +18,6 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    // 0-B.3.4: separate app sandbox for manual relink UI verification.
-    // This variant has a different applicationId and cannot access production
-    // private SharedPreferences, Room database or user-owned MIDI files.
-    buildTypes {
-        create("qa") {
-            initWith(getByName("debug"))
-            applicationIdSuffix = ".qa"
-            versionNameSuffix = "-qa"
-            isDebuggable = true
-        }
-    }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
