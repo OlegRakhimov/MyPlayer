@@ -2,6 +2,8 @@ package com.example.freelocalplayer.backup
 
 import android.content.Context
 import android.net.Uri
+import com.example.freelocalplayer.data.CanonicalLibraryJsonDecoder
+import com.example.freelocalplayer.data.LibraryState
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -108,6 +110,22 @@ class AppDataBackup(private val context: Context) {
         return root
     }
 
+    /**
+     * Keep legacy archives without a `library` key importable as an empty initial
+     * installation. A PRESENT library must pass the same strict decoder and
+     * structural invariants as the canonical LibraryStore reader.
+     */
+    private fun validatedLibraryState(settings: Map<String, Map<String, Any>>): LibraryState {
+        val values = settings.getValue("local_library_v1")
+        if (!values.containsKey("library")) return LibraryState()
+        val raw = values["library"] as? String
+            ?: throw IOException("РќР°СЃС‚СЂРѕР№РєР° library РґРѕР»Р¶РЅР° Р±С‹С‚СЊ СЃС‚СЂРѕРєРѕР№")
+        return try {
+            CanonicalLibraryJsonDecoder.decode(raw, keyExists = true)
+        } catch (error: Exception) {
+            throw IOException("РќРµРґРѕРїСѓСЃС‚РёРјР°СЏ СЃС‚СЂСѓРєС‚СѓСЂР° РјРµРґРёР°С‚РµРєРё РІ СЂРµР·РµСЂРІРЅРѕР№ РєРѕРїРёРё", error)
+        }
+    }
     private fun getPrefTypes(root: JSONObject): Map<String, Map<String, Any>> {
         if (root.length() != BackupArchiveRules.preferenceFiles.size) {
             throw IOException("Неполный или неизвестный набор настроек архива")
@@ -154,36 +172,18 @@ class AppDataBackup(private val context: Context) {
             }
             output[name] = values
         }
-        // Validate the library without interpreting its lyrics or changing any IDs.
-        val library = (output["local_library_v1"]?.get("library") as? String) ?: "{}"
-        val model = JSONObject(library)
-        val media = model.optJSONArray("media") ?: JSONArray()
-        val playlists = model.optJSONArray("playlists") ?: JSONArray()
-        if (media.length() > 100_000 || playlists.length() > 100_000) {
-            throw IOException("Недопустимый размер медиатеки в архиве")
-        }
-        for (index in 0 until media.length()) {
-            val obj = media.optJSONObject(index) ?: throw IOException("Повреждённая запись медиатеки")
-            if (obj.optString("id").isBlank() || obj.optString("uri").isBlank()) {
-                throw IOException("Запись без ID или URI")
-            }
-        }
-        for (index in 0 until playlists.length()) {
-            val obj = playlists.optJSONObject(index) ?: throw IOException("Повреждённый плейлист")
-            if (obj.optString("id").isBlank() || obj.optJSONArray("mediaIds") == null) {
-                throw IOException("Недопустимая структура плейлиста")
-            }
+        // Never silently turn a malformed PRESENT catalog into an empty library.
+        // The strict decoder also checks duplicate UUIDs and archived records.
+        val state = validatedLibraryState(output)
+        if (state.media.size > 100_000 || state.playlists.size > 100_000) {
+            throw IOException("РќРµРґРѕРїСѓСЃС‚РёРјС‹Р№ СЂР°Р·РјРµСЂ РјРµРґРёР°С‚РµРєРё РІ Р°СЂС…РёРІРµ")
         }
         return output
     }
 
-    private fun libraryCounts(prefs: JSONObject): Pair<Int, Int> {
-        val text = prefs.getJSONObject("local_library_v1")
-            .optJSONObject("library") // JSON entry is a typed object, not a library object
-        val raw = text?.optString("value") ?: "{}"
-        val lib = JSONObject(raw)
-        return (lib.optJSONArray("media")?.length() ?: 0) to
-            (lib.optJSONArray("playlists")?.length() ?: 0)
+    private fun libraryCounts(settings: Map<String, Map<String, Any>>): Pair<Int, Int> {
+        val library = validatedLibraryState(settings)
+        return library.media.size to library.playlists.size
     }
 
     private fun createSnapshot(destination: File) {
@@ -363,8 +363,8 @@ class AppDataBackup(private val context: Context) {
                 throw IOException("Manifest не соответствует содержимому ZIP")
             }
             val prefs = JSONObject(prefsFile.readText(Charsets.UTF_8))
-            getPrefTypes(prefs)
-            val (tracks, playlists) = libraryCounts(prefs)
+            val validatedPreferences = getPrefTypes(prefs)
+            val (tracks, playlists) = libraryCounts(validatedPreferences)
             val result = Inspection(
                 sourcePackage = manifest.getString("sourcePackage"),
                 createdAtMs = manifest.getLong("createdAtMs"),

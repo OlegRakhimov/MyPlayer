@@ -421,4 +421,93 @@ class BackupRestoreDeviceTest {
         assertEquals(listOf(songId, otherId), state.playlists[0].mediaIds)
         assertTrue(ShadowRoomMapping.fingerprint(rows).length == 64)
     }
+
+    /** Recalculate every declared entry digest: these are structurally invalid ZIPs,
+     * not checksum-tampered ZIPs. Production SharedPreferences are never accessed. */
+    private fun rewriteCatalogWithValidManifest(
+        original: File,
+        output: File,
+        change: (JSONObject) -> Unit
+    ) {
+        val contents = linkedMapOf<String, ByteArray>()
+        ZipInputStream(FileInputStream(original)).use { source ->
+            while (true) {
+                val entry = source.nextEntry ?: break
+                contents[entry.name] = source.readBytes()
+                source.closeEntry()
+            }
+        }
+        val preferences = JSONObject(String(contents.getValue("prefs.json"), Charsets.UTF_8))
+        val catalogEntry = preferences.getJSONObject("local_library_v1")
+            .getJSONObject("library")
+        val catalog = JSONObject(catalogEntry.getString("value"))
+        change(catalog)
+        catalogEntry.put("value", catalog.toString())
+        contents["prefs.json"] = preferences.toString().toByteArray(Charsets.UTF_8)
+
+        val manifest = JSONObject(String(contents.getValue("manifest.json"), Charsets.UTF_8))
+        val list = manifest.getJSONArray("entries")
+        var total = 0L
+        for (index in 0 until list.length()) {
+            val item = list.getJSONObject(index)
+            val bytes = contents.getValue(item.getString("path"))
+            val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+                .joinToString("") { "%02x".format(it.toInt() and 255) }
+            item.put("size", bytes.size.toLong())
+            item.put("sha256", digest)
+            total += bytes.size.toLong()
+        }
+        manifest.put("totalBytes", total)
+        contents["manifest.json"] = manifest.toString().toByteArray(Charsets.UTF_8)
+
+        ZipOutputStream(FileOutputStream(output)).use { destination ->
+            for ((name, bytes) in contents) {
+                destination.putNextEntry(ZipEntry(name))
+                destination.write(bytes)
+                destination.closeEntry()
+            }
+        }
+    }
+
+    @Test
+    fun checksumValidButInvalidCatalogIsRejectedBeforeWritingAnyData() {
+        val original = exportFile("valid-catalog.zip")
+        val cases: Map<String, (JSONObject) -> Unit> = linkedMapOf(
+            "missing-media" to { it.remove("media") },
+            "wrong-media-type" to { it.put("media", JSONObject()) },
+            "missing-playlists" to { it.remove("playlists") },
+            "duplicate-live-uuid" to { state ->
+                val entries = state.getJSONArray("media")
+                entries.put(JSONObject(entries.getJSONObject(0).toString()))
+            },
+            "empty-playlist-uuid" to { state ->
+                state.getJSONArray("playlists").getJSONObject(0).put("id", "")
+            },
+            "missing-playlist-items" to { state ->
+                state.getJSONArray("playlists").getJSONObject(0).remove("mediaIds")
+            },
+            "invalid-retired-index" to { state ->
+                state.getJSONArray("retiredMedia").getJSONObject(0)
+                    .getJSONArray("playlistPlaces").getJSONObject(0)
+                    .put("index", -1)
+            },
+            "blank-track-uri" to { state ->
+                state.getJSONArray("media").getJSONObject(0).put("uri", "")
+            }
+        )
+        for ((name, mutation) in cases) {
+            val invalid = File(sandbox.getFilesDir(), "$name.zip")
+            rewriteCatalogWithValidManifest(original, invalid, mutation)
+            val before = snapshot()
+            expectRejected("checksummed structurally invalid catalog $name") {
+                backup.inspect(invalid)
+            }
+            expectRejected("checksummed unsafe import $name") {
+                backup.restoreVerified(invalid)
+            }
+            assertEquals(before, snapshot())
+            assertFalse(backup.hasInterruptedRestore())
+            assertFalse(File(sandbox.getFilesDir(), "flp-before-last-import.zip").exists())
+        }
+    }
 }
