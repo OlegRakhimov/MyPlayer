@@ -12,6 +12,19 @@
 4. `app/src/qa/java/com/example/freelocalplayer/qa/RelinkQaActivity.kt`: использует **настоящий production `RetiredMediaRelinkDialog`**, передавая искусственные данные. Кнопка «Экспортировать резервный ZIP» **только моделирует разрешение**, не создаёт архив и не читает настройки. Подтверждение применяет `ConfirmedRetiredMediaRebind.confirmed` **только к локальному Compose state**, проверяет старый UUID, новый UUID, текст и позицию плейлиста. В интерфейсе явно указано: это симуляция, а не настоящая запись и не реальное доказательство MediaStore/SAF.
 5. `app/src/testQa/java/com/example/freelocalplayer/qa/RelinkQaFixtureTest.kt`: **6 отдельных QA-only JVM-тестов**: структура данных, правильный кандидат, неверный размер, восстановление пользовательских данных в памяти, неизменность исходной модели/отдельность экземпляров, требование явного подтверждения.
 
+## Windows Gradle QA: фактически PASS 21.11.2026
+
+Журнал пользователя подтвердил `BUILD SUCCESSFUL in 2m 10s` (86 задач: 43 выполнено и 43 актуальны), `GRADLE_QA_BUILD_AND_JVM_TESTS=PASS` и все четыре набора:
+
+- `ConfirmedRetiredMediaRebindTest`: **18/18 PASS**;
+- `RetiredMediaRelinkTest`: **15/15 PASS**;
+- `RelinkBackupReceiptTest`: **8/8 PASS**;
+- `RelinkQaFixtureTest` (testQaUnitTest): **6/6 PASS**.
+
+Итого **47 целевых JVM-тестов**. `QA_APP_ISOLATION=PASS production=com.example.freelocalplayer qa=com.example.freelocalplayer.qa`, версии `1.3.12 (20)` и `1.3.12-qa (20)`. SHA-256 основного debug APK `8F50B8CFBBF8F149E36E79270053B1451CCF9A73FAF1459D48EE6FA0B47EEEB3`; SHA-256 QA APK `29C63BA4E22C14B482A48F6AFFCDD0DB005BEE2F9CF7BEDC393F7D5B8C414233`. Путь: `app\\build\\outputs\\apk\\qa\\app-qa.apk`. `MAIN_APP_APK_INSTALL=NO`, `QA_APP_APK_INSTALL=NO`, `PHONE_DATA_MODIFIED=NO`, `ROOM_PRIMARY_STORAGE=UNCHANGED`, `RESULT=SUCCESS FREELOCALPLAYER_0B34_QA_APK_AND_JVM_VERIFIED`.
+
+**Интерфейс на телефоне всё ещё не проверен.** Следующий шаг — отдельная контролируемая установка **только QA-пакета** после read-only preflight и повторной проверки SHA-256 основной медиатеки, затем ручная проверка диалога.
+
 ## Сборка и границы верификации
 
 Первый этап — `gradlew.bat --no-daemon :app:testDebugUnitTest :app:testQaUnitTest :app:assembleDebug :app:assembleQa` на Windows, без подключения телефона. Скрипт `Verify-FreeLocalPlayer-0B34-QA-Isolated-PS51.ps1` проверяет `main` и закреплённый commit, Git blob-хеши новых файлов, неизменность production `applicationId`, JVM-тесты и пакеты собранных APK через `aapt dump badging`. **Реальная Gradle QA этого этапа ещё не выполнена.**
