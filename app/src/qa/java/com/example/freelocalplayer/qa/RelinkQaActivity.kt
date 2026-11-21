@@ -23,11 +23,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.freelocalplayer.data.ConfirmedRetiredMediaRebind
-import com.example.freelocalplayer.data.LibraryState
-import com.example.freelocalplayer.data.MediaEntry
-import com.example.freelocalplayer.data.PlaylistPlace
-import com.example.freelocalplayer.data.RetiredMedia
-import com.example.freelocalplayer.data.UserPlaylist
 import com.example.freelocalplayer.ui.RetiredMediaRelinkDialog
 
 /**
@@ -51,64 +46,9 @@ class RelinkQaActivity : ComponentActivity() {
     }
 }
 
-private const val OLD_UUID = "qa-retired-original-uuid"
-private const val NEW_UUID = "qa-scanned-temporary-uuid"
-
-private fun syntheticLibrary(): LibraryState {
-    val old = MediaEntry(
-        id = OLD_UUID,
-        uri = "content://media/external/audio/media/41001",
-        title = "QA: старый трек",
-        isVideo = false,
-        lyrics = "QA: сохранённые строки синтетического текста",
-        sizeBytes = 324_567L,
-        durationMs = 194_000L
-    )
-    val scanned = MediaEntry(
-        id = NEW_UUID,
-        uri = "content://media/external/audio/media/41002",
-        title = "QA: найденный после переиндексации",
-        isVideo = false,
-        sizeBytes = 324_567L,
-        durationMs = 194_000L
-    )
-    val mismatch = MediaEntry(
-        id = "qa-mismatched-size",
-        uri = "content://media/external/audio/media/41003",
-        title = "QA: неверный размер",
-        isVideo = false,
-        sizeBytes = 324_568L,
-        durationMs = 194_000L
-    )
-    val existing = MediaEntry(
-        id = "qa-existing-track",
-        uri = "content://media/external/audio/media/41004",
-        title = "QA: существующий трек",
-        isVideo = false,
-        sizeBytes = 82_000L,
-        durationMs = 90_000L
-    )
-    return LibraryState(
-        media = listOf(scanned, mismatch, existing),
-        playlists = listOf(
-            UserPlaylist(
-                id = "qa-playlist-one",
-                name = "QA: учебный плейлист",
-                mediaIds = listOf(existing.id)
-            )
-        ),
-        retiredMedia = listOf(
-            RetiredMedia(
-                entry = old,
-                playlistPlaces = listOf(PlaylistPlace("qa-playlist-one", 1))
-            )
-        )
-    )
-}
-
 @Composable
 private fun RelinkQaScreen() {
-    var catalog by remember { mutableStateOf(syntheticLibrary()) }
+    var catalog by remember { mutableStateOf(RelinkQaFixture.create()) }
     var dialogOpen by remember { mutableStateOf(false) }
     var fakeZipChecked by remember { mutableStateOf(false) }
     var status by remember {
@@ -150,7 +90,7 @@ private fun RelinkQaScreen() {
         }
         OutlinedButton(
             onClick = {
-                catalog = syntheticLibrary()
+                catalog = RelinkQaFixture.create()
                 fakeZipChecked = false
                 dialogOpen = false
                 status = "Симуляция сброшена; реальные данные не затронуты."
@@ -195,14 +135,14 @@ private fun RelinkQaScreen() {
                             catalog = revised
                             fakeZipChecked = false
                             dialogOpen = false
-                            val oldLive = revised.media.any { it.id == OLD_UUID }
-                            val newAbsent = revised.media.none { it.id == NEW_UUID }
+                            val oldLive = revised.media.any { it.id == RelinkQaFixture.OLD_UUID }
+                            val newAbsent = revised.media.none { it.id == RelinkQaFixture.NEW_UUID }
                             val lyricsRetained = revised.media
-                                .firstOrNull { it.id == OLD_UUID }
-                                ?.lyrics == "QA: сохранённые строки синтетического текста"
+                                .firstOrNull { it.id == RelinkQaFixture.OLD_UUID }
+                                ?.lyrics == RelinkQaFixture.SAVED_LYRICS
                             val playlistRetained = revised.playlists
-                                .firstOrNull { it.id == "qa-playlist-one" }
-                                ?.mediaIds?.contains(OLD_UUID) == true
+                                .firstOrNull { it.id == RelinkQaFixture.PLAYLIST_ID }
+                                ?.mediaIds?.contains(RelinkQaFixture.OLD_UUID) == true
                             status = if (
                                 oldLive && newAbsent &&
                                 lyricsRetained && playlistRetained &&
