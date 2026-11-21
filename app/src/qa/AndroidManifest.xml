@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- QA-only Activity. No launcher shortcut and no production data access. -->
+        <activity
+            android:name=".qa.RelinkQaActivity"
+            android:exported="true"
+            android:label="FreeLocalPlayer QA: UUID"
+            android:theme="@style/Theme.FreeLocalPlayer" />
+    </application>
+</manifest>
