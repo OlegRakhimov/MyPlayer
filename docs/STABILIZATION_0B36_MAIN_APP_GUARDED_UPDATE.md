@@ -35,6 +35,18 @@
 
 **Статус v2:** побайтовое соответствие встроенной диагностики эталону и статические проверки подтверждены. **Windows PowerShell/Android испытание v2 ещё не выполнялось**; APK не считается обновлённым до нового журнала.
 
+## 21.11.2026 14:00 — фактический PASS основного обновления на Motorola
+
+Получен реальный журнал пользователя `Upgrade-FreeLocalPlayer-0B36-Main-SelfContained-v2.ps1`. **Режим Preflight: PASS**: `BACKUP_DIAGNOSTIC=PASS source=bundled_sha256_verified`, `MAIN_APK_SHA256=PASS 8F50B8CFBBF8F149E36E79270053B1451CCF9A73FAF1459D48EE6FA0B47EEEB3`, `MAIN_APK_PACKAGE_AND_VERSION=PASS`, `MAIN_APK_CERTIFICATE=PASS ADAF14FBA3C90D25842049F39CE56F773F1C14CC90FEE83D56F109E0353C2A4B`, физическая Motorola PASS, процесс плеера остановлен, QA-пакет отсутствует, `CANONICAL_XML_SHA256_BEFORE=49284D7B76742D2B2AC6E23F187FEAD3CAB55057F80E3173DBE7101871D9721A`, `BACKUP_CANONICAL_JSON_MATCH=PASS`, `PHONE_AND_ZIP_CATALOG_COUNTS tracks=633 playlists=3 retired=0`, `BACKUP_PHONE_MUSIC_FILES_MATCH=PASS count=9`, `BEFORE_INSTALL_PRIVATE_DATA_UNCHANGED=PASS files=15`, сертификаты совпали, `MAIN_APP_APK_INSTALL=NO`, `RESULT=SUCCESS FREELOCALPLAYER_0B36_MAIN_PREFLIGHT`.
+
+**Режим InstallAndLaunch: PASS**: все проверки выполнены повторно и подтвердили соответствие существующему ZIP SHA-256 `FCE3747B369A68052572B4F43179E17D8B8BF2F34964525C416B5D25A3CC0858`. Далее `MAIN_APP_UPDATE=START same_package_preserve_data`, `MAIN_APP_UPDATE=PASS`, версия `1.3.12 (20)`, `AFTER_INSTALL_PRIVATE_DATA_UNCHANGED=PASS files=15`, `PHONE_APP_DATA_PRESERVED=PASS`, `POST_INSTALL_APK_SIGNATURE_AND_PACKAGE=PASS`, `MAIN_APP_LAUNCH=PASS`, `QA_APP_INSTALL=NO`, `PHONE_DATA_CLEARED=NO`, `RESULT=SUCCESS FREELOCALPLAYER_0B36_MAIN_UPDATED_AND_LAUNCHED`, `RESULT=SUCCESS FREELOCALPLAYER_MAIN_UPDATED`.
+
+**Итог:** безопасное обновление основного приложения **подтверждено на телефоне**. Пользовательские файлы на момент проверки непосредственно после установки сохранились; приложение запущено. **Не утверждать**, что 633 трека, тексты и аккорды повторно проверены уже после запуска, что пробное восстановление старого UUID прошло на живом каталоге или что все UI-функции работают: этого в журнале нет.
+
+**Проверка исходников `PlayerApp.kt`:** в заголовке показывается `library.media.size`, рядом иконка сохранения «Резервная копия и восстановление»; в диалоге пункт `Восстановить связь удалённого трека (N)` имеет `enabled = library.retiredMedia.isNotEmpty()`. Для ранее проверенного `retired=0` ожидается неактивный пункт и подсказка `В архиве медиатеки нет удалённых записей.`. Это **не ошибка UI**. Не создавать записи путём удаления настоящих медиа ради теста.
+
+Следующий этап — ручная production post-launch проверка количества медиа/списков, реальных текстов, MIDI/аккордов, перехода по вкладкам, работы воспроизведения и восстановление после штатного перезапуска. Если после использования изменится canonical SHA-256, **не сравнивать старую копию как актуальную** без нового экспорта. Не запускать импорт резервного ZIP: он заменяет нынешние данные.
+
 ## Приёмочные условия
 
 - `RESULT=SUCCESS FREELOCALPLAYER_0B36_MAIN_PREFLIGHT` — актуальный ZIP и неизменные приватные файлы, установка ещё не выполнялась.
