@@ -226,41 +226,21 @@ class MainActivity : ComponentActivity() {
                     selectedChordsMediaId = mediaId
                     importChordsPicker.launch(arrayOf("text/plain", "*/*"))
                 },
-                onSaveChordChart = { mediaId, chart -> saveChordChart(mediaId, chart) },
-                onSaveChordCorrection = { mediaId, edit ->
-                    if (!relinkBusy) {
-                        sidecarWritesInFlight++
-                        lifecycleScope.launch {
-                            try {
-                                withContext(Dispatchers.IO) {
-                                    musicRepository.saveChordCorrection(mediaId, edit)
-                                }
-                                musicRevision++
-                                toast("Исправление аккорда сохранено")
-                            } catch (error: Exception) {
-                                toast("Ошибка сохранения: " + error.message)
-                            } finally {
-                                sidecarWritesInFlight--
-                            }
-                        }
+                onSaveChordChart = { mediaId, chart, onResult ->
+                    writeMusicSidecarConfirmed(mediaId, onResult) {
+                        "РЎРѕС…СЂР°РЅРµРЅРѕ Р°РєРєРѕСЂРґРѕРІ: ${musicRepository.saveChords(mediaId, chart)}"
                     }
                 },
-                onRemoveChordCorrection = { mediaId, source, timeMs ->
-                    if (!relinkBusy) {
-                        sidecarWritesInFlight++
-                        lifecycleScope.launch {
-                            try {
-                                withContext(Dispatchers.IO) {
-                                    musicRepository.removeChordCorrection(mediaId, source, timeMs)
-                                }
-                                musicRevision++
-                                toast("Исправление отменено")
-                            } catch (error: Exception) {
-                                toast("Ошибка удаления правки: " + error.message)
-                            } finally {
-                                sidecarWritesInFlight--
-                            }
-                        }
+                onSaveChordCorrection = { mediaId, edit, onResult ->
+                    writeMusicSidecarConfirmed(mediaId, onResult) {
+                        musicRepository.saveChordCorrection(mediaId, edit)
+                        "РСЃРїСЂР°РІР»РµРЅРёРµ Р°РєРєРѕСЂРґР° СЃРѕС…СЂР°РЅРµРЅРѕ"
+                    }
+                },
+                onRemoveChordCorrection = { mediaId, chordSource, timeMs, onResult ->
+                    writeMusicSidecarConfirmed(mediaId, onResult) {
+                        musicRepository.removeChordCorrection(mediaId, chordSource, timeMs)
+                        "РСЃРїСЂР°РІР»РµРЅРёРµ РѕС‚РјРµРЅРµРЅРѕ"
                     }
                 },
                 onMusicOffsetChange = { mediaId, value ->
@@ -1006,19 +986,41 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun saveChordChart(mediaId: String, text: String) {
-        if (relinkBusy) return
+    /**
+     * Confirms a chord file change only after the actual atomic file operation
+     * completed. The callback always runs on the main thread for live UI sessions.
+     */
+    private fun writeMusicSidecarConfirmed(
+        mediaId: String,
+        onResult: (Boolean) -> Unit,
+        operation: () -> String
+    ) {
+        if (relinkBusy) {
+            toast("Р”РѕР¶РґРёСЃСЊ Р·Р°РІРµСЂС€РµРЅРёСЏ РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёСЏ СЃРІСЏР·Рё С‚СЂРµРєР°")
+            onResult(false)
+            return
+        }
+        if (library.media.none { it.id == mediaId }) {
+            toast("РўСЂРµРє Р±РѕР»СЊС€Рµ РЅРµ РЅР°С…РѕРґРёС‚СЃСЏ РІ РјРµРґРёР°С‚РµРєРµ. РџСЂР°РІРєР° РЅРµ СЃРѕС…СЂР°РЅРµРЅР°")
+            onResult(false)
+            return
+        }
         sidecarWritesInFlight++
         lifecycleScope.launch {
-            try {
-                val count = withContext(Dispatchers.IO) { musicRepository.saveChords(mediaId, text) }
-                musicRevision++
-                toast("Сохранено аккордов: $count")
+            val result: Result<String> = try {
+                Result.success(withContext(Dispatchers.IO) { operation() })
             } catch (error: Exception) {
-                toast("Не удалось сохранить: " + error.message)
+                Result.failure<String>(error)
             } finally {
                 sidecarWritesInFlight--
             }
+            result.onSuccess { message ->
+                musicRevision++
+                toast(message)
+            }.onFailure { error ->
+                toast("РћС€РёР±РєР° СЃРѕС…СЂР°РЅРµРЅРёСЏ РјСѓР·С‹РєР°Р»СЊРЅС‹С… РґР°РЅРЅС‹С…: ${error.message}")
+            }
+            onResult(result.isSuccess)
         }
     }
 

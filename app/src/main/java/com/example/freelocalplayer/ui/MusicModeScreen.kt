@@ -131,9 +131,9 @@ internal fun MusicModeScreen(
     onDismiss: () -> Unit,
     onImportMidi: (String) -> Unit,
     onImportChords: (String) -> Unit,
-    onSaveChords: (String, String) -> Unit,
-    onSaveChordCorrection: (String, ChordCorrection) -> Unit,
-    onRemoveChordCorrection: (String, String, Long) -> Unit,
+    onSaveChords: (String, String, (Boolean) -> Unit) -> Unit,
+    onSaveChordCorrection: (String, ChordCorrection, (Boolean) -> Unit) -> Unit,
+    onRemoveChordCorrection: (String, String, Long, (Boolean) -> Unit) -> Unit,
     onOffsetChange: (String, Long) -> Unit,
     onDeleteMidi: (String) -> Unit,
     onSpeedChange: (Float) -> Unit,
@@ -166,12 +166,20 @@ internal fun MusicModeScreen(
     var partId by remember(entry.id) { mutableStateOf("") }
     var mode by remember(entry.id) { mutableStateOf("Текст + аккорды") }
     var editChords by remember(entry.id) { mutableStateOf(false) }
+    var chordSaving by remember(entry.id) { mutableStateOf(false) }
+    var chordSaveFailed by remember(entry.id) { mutableStateOf(false) }
+    var cueSaving by remember(entry.id) { mutableStateOf(false) }
+    var cueSaveFailed by remember(entry.id) { mutableStateOf(false) }
     var showTools by remember(entry.id) { mutableStateOf(false) }
     var controlsExpanded by remember(entry.id) { mutableStateOf(false) }
     var chordSource by remember(entry.id) { mutableStateOf("Авто") }
     // Default is stable. Raw mode is available for exceptionally fast passages.
     var stableAutoChords by remember(entry.id) { mutableStateOf(true) }
-    var chordDraft by remember(entry.id, revision, state.chordText) { mutableStateOf(state.chordText) }
+    var chordDraft by remember(entry.id) { mutableStateOf(state.chordText) }
+    LaunchedEffect(entry.id, state.chordText, editChords) {
+        // Do not overwrite an unsaved draft when unrelated music data reloads.
+        if (!editChords && !chordSaving) chordDraft = state.chordText
+    }
     var positionDragging by remember { mutableStateOf(false) }
     var sliderValue by remember { mutableFloatStateOf(0f) }
     var precisePosition by remember(entry.id) { mutableLongStateOf(playback.position) }
@@ -236,7 +244,8 @@ internal fun MusicModeScreen(
             sliderValue = (musicPosition.toFloat() / playback.duration.toFloat()).coerceIn(0f, 1f)
         }
     }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismissRequest = { if (!chordSaving && !cueSaving) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(
                 modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 14.dp, vertical = 6.dp),
@@ -255,11 +264,13 @@ internal fun MusicModeScreen(
                         Icon(Icons.Default.Settings, contentDescription = "Музыкальные инструменты",
                             tint = MaterialTheme.colorScheme.onBackground)
                     }
-                    IconButton(onClick = onOpenCover, modifier = Modifier.size(40.dp)) {
+                    IconButton(onClick = onOpenCover, enabled = !chordSaving && !cueSaving,
+                        modifier = Modifier.size(40.dp)) {
                         Icon(Icons.Default.Image, contentDescription = "Обложка",
                             tint = MaterialTheme.colorScheme.onBackground)
                     }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
+                    IconButton(onClick = onDismiss, enabled = !chordSaving && !cueSaving,
+                        modifier = Modifier.size(40.dp)) {
                         Icon(Icons.Default.Close, contentDescription = "Закрыть",
                             tint = MaterialTheme.colorScheme.onBackground)
                     }
@@ -318,7 +329,7 @@ internal fun MusicModeScreen(
                                 onTogglePlayback = {
                                     if (controller?.isPlaying == true) controller.pause() else controller?.play()
                                 },
-                                onEditCurrentChord = { cue -> editCue = cue; chordNameDraft = cue.name },
+                                onEditCurrentChord = { cue -> cueSaveFailed = false; editCue = cue; chordNameDraft = cue.name },
                                 onImportLyrics = { onImportLyrics(entry.id) },
                                 onEditLyrics = onOpenLyricsEditor,
                                 onSaveTimedLyrics = { synchronized, receipt ->
@@ -340,7 +351,7 @@ internal fun MusicModeScreen(
                                     currentIndex = activeChord,
                                     offset = state.offsetMs,
                                     onSeek = { controller?.seekTo(it) },
-                                    onEdit = { cue -> editCue = cue; chordNameDraft = cue.name }
+                                    onEdit = { cue -> cueSaveFailed = false; editCue = cue; chordNameDraft = cue.name }
                                 )
                             }
                         }
@@ -508,7 +519,7 @@ internal fun MusicModeScreen(
     // Advanced commands do not consume space on the lyrics/chords playback screen.
     if (showTools) {
         Dialog(
-            onDismissRequest = { showTools = false },
+            onDismissRequest = { if (!chordSaving && !cueSaving) showTools = false },
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
         ) {
             Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -519,7 +530,8 @@ internal fun MusicModeScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Музыкальные инструменты", modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
-                        IconButton(onClick = { showTools = false }) {
+                        IconButton(onClick = { showTools = false },
+                            enabled = !chordSaving && !cueSaving) {
                             Icon(Icons.Default.Close, contentDescription = "Вернуться к тексту",
                             tint = MaterialTheme.colorScheme.onBackground)
                         }
@@ -607,28 +619,54 @@ internal fun MusicModeScreen(
                                 style = MaterialTheme.typography.bodySmall)
                         }
                         Text("Ручные аккорды", style = MaterialTheme.typography.titleMedium)
-                        OutlinedButton(onClick = { editChords = !editChords }) {
-                            Text(if (editChords) "Скрыть редактор аккордов" else "Редактировать файл аккордов")
+                        OutlinedButton(
+                            onClick = {
+                                if (!editChords) chordDraft = state.chordText
+                                editChords = !editChords
+                            },
+                            enabled = !chordSaving
+                        ) {
+                            Text(if (editChords) "РЎРєСЂС‹С‚СЊ СЂРµРґР°РєС‚РѕСЂ Р°РєРєРѕСЂРґРѕРІ" else "Р РµРґР°РєС‚РёСЂРѕРІР°С‚СЊ С„Р°Р№Р» Р°РєРєРѕСЂРґРѕРІ")
                         }
                         if (editChords) {
                             // A–B controls live in the transport and Practice section,
                             // not inside the editable chord-file text field.
                             OutlinedTextField(
                                 value = chordDraft,
-                                onValueChange = { chordDraft = it },
+                                onValueChange = { chordDraft = it; chordSaveFailed = false },
+                                enabled = !chordSaving,
                                 label = { Text("Аккорды с метками времени") },
                                 placeholder = { Text("[00:00.00] Am\n[00:04.50] F") },
                                 modifier = Modifier.fillMaxWidth().height(220.dp),
                                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface)
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(onClick = { onSaveChords(entry.id, chordDraft); editChords = false }) {
-                                    Text("Сохранить")
-                                }
-                                TextButton(onClick = { chordDraft = state.chordText; editChords = false }) {
-                                    Text("Отмена")
-                                }
+                                Button(
+                                    enabled = !chordSaving,
+                                    onClick = {
+                                        chordSaving = true
+                                        chordSaveFailed = false
+                                        onSaveChords(entry.id, chordDraft) { confirmed ->
+                                            chordSaving = false
+                                            if (confirmed) editChords = false
+                                            else chordSaveFailed = true
+                                        }
+                                    }
+                                ) { Text(if (chordSaving) "РЎРѕС…СЂР°РЅРµРЅРёРµвЂ¦" else "РЎРѕС…СЂР°РЅРёС‚СЊ") }
+                                TextButton(
+                                    enabled = !chordSaving,
+                                    onClick = {
+                                        chordDraft = state.chordText
+                                        chordSaveFailed = false
+                                        editChords = false
+                                    }
+                                ) { Text("РћС‚РјРµРЅР°") }
                             }
+                            if (chordSaveFailed) Text(
+                                "РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕС…СЂР°РЅРёС‚СЊ. РўРµРєСЃС‚ РїСЂР°РІРєРё РѕСЃС‚Р°РІР»РµРЅ РІ СЂРµРґР°РєС‚РѕСЂРµ.",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                         if (score != null) {
                             Text("MIDI: ${score.parts.size} партий · ${score.noteCount} нот · ≈ ${score.beatsPerMinute} BPM",
@@ -664,42 +702,67 @@ internal fun MusicModeScreen(
     if (selectedCue != null) {
         val existingEdit = state.corrections.any { it.source == sourceId && it.timeMs == selectedCue.timeMs }
         AlertDialog(
-            onDismissRequest = { editCue = null },
+            onDismissRequest = { if (!cueSaving) editCue = null },
             title = { Text("Исправить аккорд · ${musicTime(selectedCue.timeMs + state.offsetMs)}") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = chordNameDraft,
-                        onValueChange = { chordNameDraft = it.take(20) },
+                        onValueChange = { chordNameDraft = it.take(20); cueSaveFailed = false },
+                        enabled = !cueSaving,
                         singleLine = true,
                         label = { Text("Аккорд (например, Am, F, G7)") }
                     )
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         listOf("C", "D", "E", "F", "G", "A", "B", "Am", "Dm", "Em", "—").forEach { example ->
                             FilterChip(selected = chordNameDraft == example,
-                                onClick = { chordNameDraft = example }, label = { Text(example) })
+                                enabled = !cueSaving,
+                                onClick = { chordNameDraft = example; cueSaveFailed = false },
+                                label = { Text(example) })
                         }
                     }
-                    Text("Исправление сохраняется отдельно и не удаляется при повторном анализе.",
+                    Text("РСЃРїСЂР°РІР»РµРЅРёРµ СЃРѕС…СЂР°РЅСЏРµС‚СЃСЏ РѕС‚РґРµР»СЊРЅРѕ Рё РЅРµ СѓРґР°Р»СЏРµС‚СЃСЏ РїСЂРё РїРѕРІС‚РѕСЂРЅРѕРј Р°РЅР°Р»РёР·Рµ.",
                         style = MaterialTheme.typography.labelSmall)
+                    if (cueSaving) Text("РЎРѕС…СЂР°РЅРµРЅРёРµ РёСЃРїСЂР°РІР»РµРЅРёСЏвЂ¦",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelSmall)
+                    if (cueSaveFailed) Text("РќРµ СѓРґР°Р»РѕСЃСЊ РІС‹РїРѕР»РЅРёС‚СЊ РѕРїРµСЂР°С†РёСЋ. РџСЂР°РІРєР° РЅРµ Р·Р°РєСЂС‹С‚Р°.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
                 }
             },
             confirmButton = {
                 TextButton(
-                    enabled = ChordCorrections.isValidName(chordNameDraft.trim()),
+                    enabled = !cueSaving && ChordCorrections.isValidName(chordNameDraft.trim()),
                     onClick = {
-                        onSaveChordCorrection(entry.id, ChordCorrection(sourceId, selectedCue.timeMs, chordNameDraft.trim()))
-                        editCue = null
+                        cueSaving = true
+                        cueSaveFailed = false
+                        onSaveChordCorrection(entry.id,
+                            ChordCorrection(sourceId, selectedCue.timeMs, chordNameDraft.trim())) { confirmed ->
+                            cueSaving = false
+                            if (confirmed) editCue = null
+                            else cueSaveFailed = true
+                        }
                     }
-                ) { Text("Сохранить") }
+                ) { Text(if (cueSaving) "РЎРѕС…СЂР°РЅРµРЅРёРµвЂ¦" else "РЎРѕС…СЂР°РЅРёС‚СЊ") }
             },
             dismissButton = {
                 Row {
-                    if (existingEdit) TextButton(onClick = {
-                        onRemoveChordCorrection(entry.id, sourceId, selectedCue.timeMs)
-                        editCue = null
-                    }) { Text("Отменить правку") }
-                    TextButton(onClick = { editCue = null }) { Text("Закрыть") }
+                    if (existingEdit) TextButton(
+                        enabled = !cueSaving,
+                        onClick = {
+                            cueSaving = true
+                            cueSaveFailed = false
+                            onRemoveChordCorrection(entry.id, sourceId, selectedCue.timeMs) { confirmed ->
+                                cueSaving = false
+                                if (confirmed) editCue = null
+                                else cueSaveFailed = true
+                            }
+                        }
+                    ) { Text("РћС‚РјРµРЅРёС‚СЊ РїСЂР°РІРєСѓ") }
+                    TextButton(enabled = !cueSaving, onClick = { editCue = null }) {
+                        Text("Р—Р°РєСЂС‹С‚СЊ")
+                    }
                 }
             }
         )
