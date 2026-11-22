@@ -228,19 +228,19 @@ class MainActivity : ComponentActivity() {
                 },
                 onSaveChordChart = { mediaId, chart, onResult ->
                     writeMusicSidecarConfirmed(mediaId, onResult) {
-                        "РЎРѕС…СЂР°РЅРµРЅРѕ Р°РєРєРѕСЂРґРѕРІ: ${musicRepository.saveChords(mediaId, chart)}"
+                        "Сохранено аккордов: ${musicRepository.saveChords(mediaId, chart)}"
                     }
                 },
                 onSaveChordCorrection = { mediaId, edit, onResult ->
                     writeMusicSidecarConfirmed(mediaId, onResult) {
                         musicRepository.saveChordCorrection(mediaId, edit)
-                        "РСЃРїСЂР°РІР»РµРЅРёРµ Р°РєРєРѕСЂРґР° СЃРѕС…СЂР°РЅРµРЅРѕ"
+                        "Исправление аккорда сохранено"
                     }
                 },
                 onRemoveChordCorrection = { mediaId, chordSource, timeMs, onResult ->
                     writeMusicSidecarConfirmed(mediaId, onResult) {
                         musicRepository.removeChordCorrection(mediaId, chordSource, timeMs)
-                        "РСЃРїСЂР°РІР»РµРЅРёРµ РѕС‚РјРµРЅРµРЅРѕ"
+                        "Исправление отменено"
                     }
                 },
                 onMusicOffsetChange = { mediaId, value ->
@@ -996,12 +996,12 @@ class MainActivity : ComponentActivity() {
         operation: () -> String
     ) {
         if (relinkBusy) {
-            toast("Р”РѕР¶РґРёСЃСЊ Р·Р°РІРµСЂС€РµРЅРёСЏ РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёСЏ СЃРІСЏР·Рё С‚СЂРµРєР°")
+            toast("Дождись завершения восстановления связи трека")
             onResult(false)
             return
         }
         if (library.media.none { it.id == mediaId }) {
-            toast("РўСЂРµРє Р±РѕР»СЊС€Рµ РЅРµ РЅР°С…РѕРґРёС‚СЃСЏ РІ РјРµРґРёР°С‚РµРєРµ. РџСЂР°РІРєР° РЅРµ СЃРѕС…СЂР°РЅРµРЅР°")
+            toast("Трек больше не находится в медиатеке. Правка не сохранена")
             onResult(false)
             return
         }
@@ -1018,7 +1018,7 @@ class MainActivity : ComponentActivity() {
                 musicRevision++
                 toast(message)
             }.onFailure { error ->
-                toast("РћС€РёР±РєР° СЃРѕС…СЂР°РЅРµРЅРёСЏ РјСѓР·С‹РєР°Р»СЊРЅС‹С… РґР°РЅРЅС‹С…: ${error.message}")
+                toast("Ошибка сохранения музыкальных данных: ${error.message}")
             }
             onResult(result.isSuccess)
         }

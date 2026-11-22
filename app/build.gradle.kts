@@ -13,8 +13,8 @@ android {
         applicationId = "com.example.freelocalplayer"
         minSdk = 26
         targetSdk = 36
-        versionCode = 20
-        versionName = "1.3.12"
+        versionCode = 21
+        versionName = "1.3.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

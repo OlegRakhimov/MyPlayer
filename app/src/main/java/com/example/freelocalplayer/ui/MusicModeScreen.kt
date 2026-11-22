@@ -626,7 +626,7 @@ internal fun MusicModeScreen(
                             },
                             enabled = !chordSaving
                         ) {
-                            Text(if (editChords) "РЎРєСЂС‹С‚СЊ СЂРµРґР°РєС‚РѕСЂ Р°РєРєРѕСЂРґРѕРІ" else "Р РµРґР°РєС‚РёСЂРѕРІР°С‚СЊ С„Р°Р№Р» Р°РєРєРѕСЂРґРѕРІ")
+                            Text(if (editChords) "Скрыть редактор аккордов" else "Редактировать файл аккордов")
                         }
                         if (editChords) {
                             // A–B controls live in the transport and Practice section,
@@ -652,7 +652,7 @@ internal fun MusicModeScreen(
                                             else chordSaveFailed = true
                                         }
                                     }
-                                ) { Text(if (chordSaving) "РЎРѕС…СЂР°РЅРµРЅРёРµвЂ¦" else "РЎРѕС…СЂР°РЅРёС‚СЊ") }
+                                ) { Text(if (chordSaving) "Сохранение…" else "Сохранить") }
                                 TextButton(
                                     enabled = !chordSaving,
                                     onClick = {
@@ -660,10 +660,10 @@ internal fun MusicModeScreen(
                                         chordSaveFailed = false
                                         editChords = false
                                     }
-                                ) { Text("РћС‚РјРµРЅР°") }
+                                ) { Text("Отмена") }
                             }
                             if (chordSaveFailed) Text(
-                                "РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕС…СЂР°РЅРёС‚СЊ. РўРµРєСЃС‚ РїСЂР°РІРєРё РѕСЃС‚Р°РІР»РµРЅ РІ СЂРµРґР°РєС‚РѕСЂРµ.",
+                                "Не удалось сохранить. Текст правки оставлен в редакторе.",
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall
                             )
@@ -721,12 +721,12 @@ internal fun MusicModeScreen(
                                 label = { Text(example) })
                         }
                     }
-                    Text("РСЃРїСЂР°РІР»РµРЅРёРµ СЃРѕС…СЂР°РЅСЏРµС‚СЃСЏ РѕС‚РґРµР»СЊРЅРѕ Рё РЅРµ СѓРґР°Р»СЏРµС‚СЃСЏ РїСЂРё РїРѕРІС‚РѕСЂРЅРѕРј Р°РЅР°Р»РёР·Рµ.",
+                    Text("Исправление сохраняется отдельно и не удаляется при повторном анализе.",
                         style = MaterialTheme.typography.labelSmall)
-                    if (cueSaving) Text("РЎРѕС…СЂР°РЅРµРЅРёРµ РёСЃРїСЂР°РІР»РµРЅРёСЏвЂ¦",
+                    if (cueSaving) Text("Сохранение исправления…",
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.labelSmall)
-                    if (cueSaveFailed) Text("РќРµ СѓРґР°Р»РѕСЃСЊ РІС‹РїРѕР»РЅРёС‚СЊ РѕРїРµСЂР°С†РёСЋ. РџСЂР°РІРєР° РЅРµ Р·Р°РєСЂС‹С‚Р°.",
+                    if (cueSaveFailed) Text("Не удалось выполнить операцию. Правка не закрыта.",
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall)
                 }
@@ -744,7 +744,7 @@ internal fun MusicModeScreen(
                             else cueSaveFailed = true
                         }
                     }
-                ) { Text(if (cueSaving) "РЎРѕС…СЂР°РЅРµРЅРёРµвЂ¦" else "РЎРѕС…СЂР°РЅРёС‚СЊ") }
+                ) { Text(if (cueSaving) "Сохранение…" else "Сохранить") }
             },
             dismissButton = {
                 Row {
@@ -759,9 +759,9 @@ internal fun MusicModeScreen(
                                 else cueSaveFailed = true
                             }
                         }
-                    ) { Text("РћС‚РјРµРЅРёС‚СЊ РїСЂР°РІРєСѓ") }
+                    ) { Text("Отменить правку") }
                     TextButton(enabled = !cueSaving, onClick = { editCue = null }) {
-                        Text("Р—Р°РєСЂС‹С‚СЊ")
+                        Text("Закрыть")
                     }
                 }
             }
